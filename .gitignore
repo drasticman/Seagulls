@@ -1,0 +1,12 @@
+# Xcode
+DerivedData/
+build/
+*.xcworkspace
+*.xcuserdatad
+*.swp
+
+# macOS
+.DS_Store
+
+# App settings that are local
+Seagulls/settings.json
