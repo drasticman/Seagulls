@@ -83,6 +83,14 @@ struct ContentView: View {
     // MARK: - Settings
 
     func loadSettings() {
+        for drive in mountedRemovableDrives() {
+            print("Mounted removable drive:")
+            print("  name:", drive.volumeName ?? "nil")
+            print("  uuid:", drive.volumeUUID?.uuidString ?? "nil")
+            print("  capacity:", drive.capacityBytes ?? 0)
+            print("  path:", drive.url.path)
+        }
+
         let url = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Seagulls/settings.json")

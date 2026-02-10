@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		40FB7CC02F3BE0A9005DE7D2 /* DriveIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40FB7CBF2F3BE0A9005DE7D2 /* DriveIdentity.swift */; };
+		40FB7CC22F3BE237005DE7D2 /* MountedDriveDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40FB7CC12F3BE237005DE7D2 /* MountedDriveDiscovery.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +33,7 @@
 		408E57822F33E54E00E9259A /* SeagullsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SeagullsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		408E578C2F33E54E00E9259A /* SeagullsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SeagullsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		40FB7CBF2F3BE0A9005DE7D2 /* DriveIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveIdentity.swift; sourceTree = "<group>"; };
+		40FB7CC12F3BE237005DE7D2 /* MountedDriveDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountedDriveDiscovery.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -94,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				40FB7CBF2F3BE0A9005DE7D2 /* DriveIdentity.swift */,
+				40FB7CC12F3BE237005DE7D2 /* MountedDriveDiscovery.swift */,
 				408E57752F33E54D00E9259A /* Seagulls */,
 				408E57852F33E54E00E9259A /* SeagullsTests */,
 				408E578F2F33E54E00E9259A /* SeagullsUITests */,
@@ -256,6 +259,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				40FB7CC02F3BE0A9005DE7D2 /* DriveIdentity.swift in Sources */,
+				40FB7CC22F3BE237005DE7D2 /* MountedDriveDiscovery.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
