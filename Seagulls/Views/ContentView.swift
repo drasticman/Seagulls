@@ -89,9 +89,16 @@ struct ContentView: View {
 
         for drive in candidates.map({ $0.mountedDrive }) {
             if drive.volumeName == "DIT_CDLs" {
-                DriveRegistry.shared.registerCandidate(drive) // fixed
+                DriveRegistry.shared.registerCandidate(drive)
+
+                // ✅ Auto-enable Start Workflow
+                if volumeURL == nil {               // only if not already set
+                    volumeURL = drive.url
+                    statusMessage = "DIT_CDLs thumb drive detected — ready to start"
+                }
             }
 
+            // keep this for existing saved volume logic
             if let settings = loadedSettings,
                drive.volumeName == settings.volumeName() {
                 volumeURL = drive.url
