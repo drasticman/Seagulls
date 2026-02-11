@@ -66,6 +66,8 @@ struct ContentView: View {
         .frame(minWidth: 520, minHeight: 320)
         .onAppear {
             logAllMountedVolumes()
+            let removableDrives = mountedRemovableDrives()
+            let _ = candidateDrives(from: removableDrives)
             loadSettings()
         }
         .onDisappear {

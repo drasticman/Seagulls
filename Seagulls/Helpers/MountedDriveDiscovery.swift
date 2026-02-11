@@ -79,3 +79,35 @@ func logAllMountedVolumes() {
     }
 }
 
+func candidateDrives(from mounted: [MountedDrive]) -> [CandidateDrive] {
+    var candidates: [CandidateDrive] = []
+
+    for drive in mounted {
+        // skip non-removable (extra safety)
+        guard drive.isRemovable else { continue }
+
+        // skip simulator / weird paths
+        let path = drive.url.path
+        if path.contains("CoreSimulator") || path.contains("Time Machine") {
+            continue
+        }
+
+        let candidate = CandidateDrive(
+            mountedDrive: drive,
+            reason: "Removable & sane path"
+        )
+        candidates.append(candidate)
+    }
+
+    // Log for visibility
+    if candidates.isEmpty {
+        print("No candidate drives found")
+    } else {
+        for c in candidates {
+            print("Candidate drive: \(c.mountedDrive.volumeName ?? "unknown") — \(c.reason)")
+        }
+    }
+
+    return candidates
+}
+

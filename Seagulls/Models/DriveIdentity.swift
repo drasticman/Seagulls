@@ -22,3 +22,9 @@ struct MountedDrive {
     let capacityBytes: Int64?
     let isRemovable: Bool
 }
+
+struct CandidateDrive {
+    let mountedDrive: MountedDrive
+    let reason: String
+}
+
