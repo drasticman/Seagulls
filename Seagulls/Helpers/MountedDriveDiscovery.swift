@@ -44,3 +44,38 @@ func mountedRemovableDrives() -> [MountedDrive] {
         )
     }
 }
+
+func logAllMountedVolumes() {
+    let fm = FileManager.default
+
+    let keys: Set<URLResourceKey> = [
+        .volumeUUIDStringKey,
+        .volumeNameKey,
+        .volumeTotalCapacityKey,
+        .volumeIsRemovableKey,
+        .volumeIsInternalKey
+    ]
+
+    guard let urls = fm.mountedVolumeURLs(
+        includingResourceValuesForKeys: Array(keys),
+        options: []
+    ) else {
+        print("No mounted volumes found")
+        return
+    }
+
+    for url in urls {
+        let values = try? url.resourceValues(forKeys: keys)
+
+        print("""
+        Mounted volume:
+          name: \(values?.volumeName ?? "unknown")
+          uuid: \(values?.volumeUUIDString ?? "unknown")
+          path: \(url.path)
+          capacity: \(values?.volumeTotalCapacity ?? 0)
+          removable: \(values?.volumeIsRemovable ?? false)
+          internal: \(values?.volumeIsInternal ?? false)
+        """)
+    }
+}
+
