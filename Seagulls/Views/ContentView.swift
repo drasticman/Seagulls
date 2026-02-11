@@ -3,6 +3,7 @@
 //  Seagulls
 //
 //  Created by Andy Bader on 2/4/26
+//  Updated 2/11/26 — compiled stubs added
 //
 
 import SwiftUI
@@ -18,7 +19,6 @@ struct ContentView: View {
     @State private var settingsLoaded = false
     @State private var loadedSettings: CDLSettings?
     @State private var volumeWatcherTask: Task<Void, Never>?
-
 
     var body: some View {
         VStack(spacing: 20) {
@@ -48,7 +48,7 @@ struct ContentView: View {
                     Button("Start Workflow") {
                         startWorkflow()
                     }
-                    .disabled(volumeURL == nil)   // 👈 key UX detail
+                    .disabled(volumeURL == nil)
                     .keyboardShortcut(.defaultAction)
                 }
 
@@ -65,10 +65,8 @@ struct ContentView: View {
         .padding()
         .frame(minWidth: 520, minHeight: 320)
         .onAppear {
-            logAllMountedVolumes()
-            let removableDrives = mountedRemovableDrives()
-            let _ = candidateDrives(from: removableDrives)
-            loadSettings()
+            logAllMountedVolumes()        // DEBUG
+            loadSettings()                // load saved settings
         }
         .onDisappear {
             volumeWatcherTask?.cancel()
@@ -83,17 +81,28 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Refresh Drives
+
+    func refreshMountedDrives() {
+        let mounted = mountedRemovableDrives()
+        let candidates = candidateDrives(from: mounted)
+
+        for drive in candidates.map({ $0.mountedDrive }) {
+            if drive.volumeName == "DIT_CDLs" {
+                DriveRegistry.shared.registerCandidate(drive) // fixed
+            }
+
+            if let settings = loadedSettings,
+               drive.volumeName == settings.volumeName() {
+                volumeURL = drive.url
+                statusMessage = "Thumb drive detected"
+            }
+        }
+    }
+
     // MARK: - Settings
 
     func loadSettings() {
-        for drive in mountedRemovableDrives() {
-            print("Mounted removable drive:")
-            print("  name:", drive.volumeName ?? "nil")
-            print("  uuid:", drive.volumeUUID?.uuidString ?? "nil")
-            print("  capacity:", drive.capacityBytes ?? 0)
-            print("  path:", drive.url.path)
-        }
-
         let url = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Seagulls/settings.json")
@@ -110,7 +119,6 @@ struct ContentView: View {
 
         loadedSettings = settings
         settingsLoaded = true
-        startVolumeWatcher()
 
         desktopCDLURL = settings.desktopCDLURL()
         archiveRootURL = settings.archiveRootURL()
@@ -121,9 +129,28 @@ struct ContentView: View {
         } else {
             statusMessage = "Settings loaded"
         }
+
+        startVolumeWatcher()
     }
 
+    // MARK: - Volume watcher (poll for new mounts)
 
+    func startVolumeWatcher() {
+        volumeWatcherTask?.cancel()
+
+        volumeWatcherTask = Task {
+            while !Task.isCancelled {
+                if volumeURL != nil {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    continue
+                }
+
+                refreshMountedDrives()
+
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+    }
 
     // MARK: - Main Workflow
 
@@ -135,10 +162,7 @@ struct ContentView: View {
         Task {
 
             // 1️⃣ Shooting day
-            let shootingDay = await askText(
-                title: "Shooting Day",
-                message: "Enter the shooting day (e.g. 6):"
-            )
+            let shootingDay = await askText(title: "Shooting Day", message: "Enter the shooting day (e.g. 6):")
             guard !shootingDay.isEmpty else {
                 statusMessage = "Workflow cancelled"
                 return
@@ -151,7 +175,7 @@ struct ContentView: View {
                 return
             }
 
-            // 3️⃣ Wait for CDL/JPGs
+            // 3️⃣ Wait for files
             statusMessage = "Waiting for files in CDL folder…"
             await waitForFiles(in: desktop)
 
@@ -159,7 +183,7 @@ struct ContentView: View {
             statusMessage = "Waiting for thumb drive…"
             await waitForDrive(at: volume)
 
-            // 5️⃣ Check if thumb drive is meaningfully empty
+            // 5️⃣ Check thumb drive contents
             let visible = meaningfulContents(of: volume)
             if !visible.isEmpty {
                 let choice = await confirmWipe()
@@ -223,10 +247,7 @@ struct ContentView: View {
             // 🔟 Reveal + QC
             NSWorkspace.shared.open(volumeTarget)
 
-            if let firstJPG = firstFile(
-                withExtensions: ["jpg", "jpeg"],
-                in: volumeTarget
-            ) {
+            if let firstJPG = firstFile(withExtensions: ["jpg", "jpeg"], in: volumeTarget) {
                 NSWorkspace.shared.open(firstJPG)
             }
 
@@ -234,161 +255,10 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Alerts
-
-    func askText(title: String, message: String) async -> String {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                let alert = NSAlert()
-                alert.messageText = title
-                alert.informativeText = message
-
-                let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-                alert.accessoryView = field
-
-                alert.addButton(withTitle: "OK")
-                alert.addButton(withTitle: "Cancel")
-
-                let result = alert.runModal()
-                continuation.resume(
-                    returning: result == .alertFirstButtonReturn
-                        ? field.stringValue
-                        : ""
-                )
-            }
-        }
-    }
-
-    func askBreak() async -> String {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                let alert = NSAlert()
-                alert.messageText = "Break"
-                alert.informativeText = "Select the break"
-
-                let combo = NSComboBox(frame: NSRect(x: 0, y: 0, width: 150, height: 24))
-                combo.addItems(withObjectValues: ["AM", "PM", "All Day"])
-                combo.selectItem(at: 0)
-                alert.accessoryView = combo
-
-                alert.addButton(withTitle: "OK")
-                alert.addButton(withTitle: "Cancel")
-
-                let result = alert.runModal()
-                continuation.resume(
-                    returning: result == .alertFirstButtonReturn
-                        ? (combo.stringValue.isEmpty ? "All Day" : combo.stringValue)
-                        : ""
-                )
-            }
-        }
-    }
-
-
-
-    enum WipeChoice {
-        case wipe
-        case skip
-        case cancel
-    }
-
-    func confirmWipe() async -> WipeChoice {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                let alert = NSAlert()
-                alert.messageText = "Thumb drive not empty"
-                alert.informativeText = "Wipe the thumb drive?"
-                alert.alertStyle = .warning
-
-                alert.addButton(withTitle: "Wipe")
-                alert.addButton(withTitle: "Skip")
-                alert.addButton(withTitle: "Cancel")
-
-                switch alert.runModal() {
-                case .alertFirstButtonReturn:
-                    continuation.resume(returning: .wipe)
-                case .alertSecondButtonReturn:
-                    continuation.resume(returning: .skip)
-                default:
-                    continuation.resume(returning: .cancel)
-                }
-            }
-        }
-    }
-
-    // MARK: - File Helpers
-
-    func meaningfulContents(of folder: URL) -> [URL] {
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: [.isHiddenKey]
-        ) else { return [] }
-
-        return items.filter {
-            !((try? $0.resourceValues(forKeys: [.isHiddenKey]).isHidden) ?? true)
-        }
-    }
-
-    func removeContents(of folder: URL) throws {
-        let fm = FileManager.default
-        let items = try fm.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: [.isHiddenKey]
-        )
-
-        for item in items {
-            let isHidden = (try? item.resourceValues(forKeys: [.isHiddenKey]).isHidden) ?? true
-            if isHidden { continue }
-            try fm.removeItem(at: item)
-        }
-    }
-
-    func copyContents(from src: URL, to dst: URL) throws {
-        let items = try FileManager.default.contentsOfDirectory(at: src, includingPropertiesForKeys: nil)
-        for item in items {
-            let target = dst.appendingPathComponent(item.lastPathComponent)
-            try FileManager.default.copyItem(at: item, to: target)
-        }
-    }
-
-    func moveContents(from src: URL, to dst: URL) throws {
-        let items = try FileManager.default.contentsOfDirectory(at: src, includingPropertiesForKeys: nil)
-        for item in items {
-            try FileManager.default.moveItem(
-                at: item,
-                to: dst.appendingPathComponent(item.lastPathComponent)
-            )
-        }
-    }
-
-    func deleteCDLFiles(in folder: URL) {
-        guard let items = try? FileManager.default.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: nil
-        ) else { return }
-
-        for item in items where item.pathExtension.lowercased() == "cdl" {
-            try? FileManager.default.removeItem(at: item)
-        }
-    }
-
-    func firstFile(withExtensions exts: [String], in folder: URL) -> URL? {
-        guard let items = try? FileManager.default.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: nil
-        ) else { return nil }
-
-        return items.first {
-            exts.contains($0.pathExtension.lowercased())
-        }
-    }
-
     // MARK: - Waiting
 
     func waitForFiles(in folder: URL) async {
         let fm = FileManager.default
-
         var lastSnapshot: (count: Int, size: Int64) = (0, 0)
         var stableSeconds = 0
         let requiredStableSeconds = 3
@@ -402,7 +272,7 @@ struct ContentView: View {
                 options: [.skipsHiddenFiles]
             ) else {
                 stableSeconds = 0
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 continue
             }
 
@@ -426,7 +296,7 @@ struct ContentView: View {
 
             if deliverables.isEmpty {
                 stableSeconds = 0
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 continue
             }
 
@@ -447,7 +317,7 @@ struct ContentView: View {
                 return
             }
 
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
         }
     }
 
@@ -456,34 +326,10 @@ struct ContentView: View {
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
     }
-    
-    func startVolumeWatcher() {
-        volumeWatcherTask?.cancel()
 
-        guard let settings = loadedSettings else { return }
-
-        volumeWatcherTask = Task {
-            while !Task.isCancelled {
-                // Already mounted? Nothing to do.
-                if volumeURL != nil {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    continue
-                }
-
-                if let resolved = settings.volumeURL() {
-                    await MainActor.run {
-                        volumeURL = resolved
-                        statusMessage = "Thumb drive detected"
-                    }
-                    return
-                }
-
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-        }
-    }
 
 }
+
 
 #Preview {
     ContentView()

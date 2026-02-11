@@ -3,9 +3,13 @@
 //  Seagulls
 //
 //  Created by Andy Bader on 2/10/26.
+//  Rewritten 2/11/26
+//  Refactored 2/11/26 — no SwiftUI state references
 //
 
 import Foundation
+
+// MARK: - Discover mounted removable drives
 
 func mountedRemovableDrives() -> [MountedDrive] {
     let fm = FileManager.default
@@ -18,9 +22,7 @@ func mountedRemovableDrives() -> [MountedDrive] {
             .volumeIsRemovableKey
         ],
         options: []
-    ) else {
-        return []
-    }
+    ) else { return [] }
 
     return urls.compactMap { url in
         let values = try? url.resourceValues(forKeys: [
@@ -44,6 +46,8 @@ func mountedRemovableDrives() -> [MountedDrive] {
         )
     }
 }
+
+// MARK: - Log all mounted volumes for debugging
 
 func logAllMountedVolumes() {
     let fm = FileManager.default
@@ -79,35 +83,35 @@ func logAllMountedVolumes() {
     }
 }
 
+// MARK: - Determine candidate drives
+
 func candidateDrives(from mounted: [MountedDrive]) -> [CandidateDrive] {
-    var candidates: [CandidateDrive] = []
-
-    for drive in mounted {
-        // skip non-removable (extra safety)
-        guard drive.isRemovable else { continue }
-
-        // skip simulator / weird paths
+    let filtered = mounted.filter { drive in
+        guard drive.isRemovable else { return false }
         let path = drive.url.path
-        if path.contains("CoreSimulator") || path.contains("Time Machine") {
-            continue
-        }
-
-        let candidate = CandidateDrive(
-            mountedDrive: drive,
-            reason: "Removable & sane path"
-        )
-        candidates.append(candidate)
+        return !path.contains("CoreSimulator") && !path.contains("Time Machine")
     }
 
-    // Log for visibility
-    if candidates.isEmpty {
+    if filtered.isEmpty {
         print("No candidate drives found")
     } else {
-        for c in candidates {
-            print("Candidate drive: \(c.mountedDrive.volumeName ?? "unknown") — \(c.reason)")
+        for drive in filtered {
+            print("Candidate drive: \(drive.volumeName ?? "unknown") — Removable & sane path")
         }
     }
 
-    return candidates
+    return filtered.map { CandidateDrive(mountedDrive: $0, reason: "Removable & sane path") }
 }
 
+// MARK: - Auto-trust allowed drives
+
+func autoTrustAllowedDrives(from drives: [MountedDrive]) {
+    for drive in drives {
+        if drive.volumeName == "DIT_CDLs" {
+            DriveRegistry.shared.registerCandidate(drive)
+            #if DEBUG
+            print("Auto-trusted drive: \(drive.volumeName ?? "unknown") — \(drive.url.path)")
+            #endif
+        }
+    }
+}
