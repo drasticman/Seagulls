@@ -19,14 +19,55 @@ enum WipeChoice {
 
 /// Asks the user for free-text input
 func askText(title: String, message: String) async -> String {
-    // For now, just return a dummy string
-    return "1"
+    await withCheckedContinuation { continuation in
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        
+        // Simple text field
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        alert.accessoryView = input
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            continuation.resume(returning: input.stringValue)
+        } else {
+            continuation.resume(returning: "")
+        }
+    }
 }
+
 
 /// Asks the user to enter a break name
 func askBreak() async -> String {
-    return "A"
+    await withCheckedContinuation { continuation in
+        let alert = NSAlert()
+        alert.messageText = "Break / AM-PM"
+        alert.informativeText = "Select or type a break designation:"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        
+        // ✅ Create editable combo box
+        let comboBox = NSComboBox(frame: NSRect(x: 0, y: 0, width: 150, height: 26))
+        comboBox.addItems(withObjectValues: ["AM", "PM", "All Day"])
+        comboBox.selectItem(at: 0)   // default to "AM"
+        comboBox.isEditable = true
+
+        alert.accessoryView = comboBox
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            continuation.resume(returning: comboBox.stringValue)
+        } else {
+            continuation.resume(returning: "")
+        }
+    }
 }
+
 
 /// Returns meaningful contents of a folder (non-hidden files)
 func meaningfulContents(of folder: URL) -> [URL] {

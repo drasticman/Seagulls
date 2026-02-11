@@ -87,25 +87,26 @@ struct ContentView: View {
         let mounted = mountedRemovableDrives()
         let candidates = candidateDrives(from: mounted)
 
-        for drive in candidates.map({ $0.mountedDrive }) {
-            if drive.volumeName == "DIT_CDLs" {
-                DriveRegistry.shared.registerCandidate(drive)
+        // Look for DIT_CDLs specifically (name-based for now)
+        let detectedDrive = candidates
+            .map { $0.mountedDrive }
+            .first { $0.volumeName == "DIT_CDLs" }
 
-                // ✅ Auto-enable Start Workflow
-                if volumeURL == nil {               // only if not already set
-                    volumeURL = drive.url
-                    statusMessage = "DIT_CDLs thumb drive detected — ready to start"
-                }
-            }
-
-            // keep this for existing saved volume logic
-            if let settings = loadedSettings,
-               drive.volumeName == settings.volumeName() {
+        if let drive = detectedDrive {
+            // Drive is present
+            if volumeURL != drive.url {
                 volumeURL = drive.url
-                statusMessage = "Thumb drive detected"
+                statusMessage = "DIT_CDLs thumb drive detected — ready to start"
+            }
+        } else {
+            // Drive is NOT present
+            if volumeURL != nil {
+                volumeURL = nil
+                statusMessage = "DIT_CDLs thumb drive disconnected"
             }
         }
     }
+
 
     // MARK: - Settings
 
@@ -147,17 +148,12 @@ struct ContentView: View {
 
         volumeWatcherTask = Task {
             while !Task.isCancelled {
-                if volumeURL != nil {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    continue
-                }
-
                 refreshMountedDrives()
-
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
         }
     }
+
 
     // MARK: - Main Workflow
 
