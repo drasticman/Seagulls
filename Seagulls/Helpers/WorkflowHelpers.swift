@@ -2,7 +2,8 @@
 //  WorkflowHelpers.swift
 //  Seagulls
 //
-//  Created by Andy Bader on 2/11/26.
+//  Created by Andy Bader on 2/11/26
+//  Updated 2/13/26 — full workflow helpers including safe wipe and Finder integration
 //
 
 import Foundation
@@ -15,9 +16,9 @@ enum WipeChoice {
     case cancel
 }
 
-// MARK: - Placeholder functions for workflow
+// MARK: - User prompts
 
-/// Asks the user for free-text input
+/// Asks the user for free-text input (returns empty string if cancelled)
 func askText(title: String, message: String) async -> String {
     await withCheckedContinuation { continuation in
         let alert = NSAlert()
@@ -27,7 +28,6 @@ func askText(title: String, message: String) async -> String {
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
         
-        // Simple text field
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         alert.accessoryView = input
         
@@ -40,8 +40,7 @@ func askText(title: String, message: String) async -> String {
     }
 }
 
-
-/// Asks the user to enter a break name
+/// Asks the user to enter a break name (AM/PM/All Day)
 func askBreak() async -> String {
     await withCheckedContinuation { continuation in
         let alert = NSAlert()
@@ -51,14 +50,13 @@ func askBreak() async -> String {
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
         
-        // ✅ Create editable combo box
         let comboBox = NSComboBox(frame: NSRect(x: 0, y: 0, width: 150, height: 26))
         comboBox.addItems(withObjectValues: ["AM", "PM", "All Day"])
-        comboBox.selectItem(at: 0)   // default to "AM"
+        comboBox.selectItem(at: 0)
         comboBox.isEditable = true
-
+        
         alert.accessoryView = comboBox
-
+        
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
             continuation.resume(returning: comboBox.stringValue)
@@ -68,35 +66,103 @@ func askBreak() async -> String {
     }
 }
 
+/// Ask user whether to wipe a non-empty thumb drive, showing its root folder in Finder
+/// with all files selected for inspection
+func confirmWipe(for volume: URL) async -> WipeChoice {
+    let fm = FileManager.default
+    let items = (try? fm.contentsOfDirectory(at: volume, includingPropertiesForKeys: nil)
+                    .filter { !$0.lastPathComponent.hasPrefix(".") }) ?? []
 
-/// Returns meaningful contents of a folder (non-hidden files)
+    if !items.isEmpty {
+        // AppleScript: open folder, bring Finder to front, select files
+        let appleScript = """
+        tell application "Finder"
+            activate
+            set theFolder to POSIX file "\(volume.path)" as alias
+            open theFolder
+            select { \(items.map { "POSIX file \"\($0.path)\" as alias" }.joined(separator: ", ")) }
+        end tell
+        """
+        var error: NSDictionary?
+        if let script = NSAppleScript(source: appleScript) {
+            script.executeAndReturnError(&error)
+            if let err = error {
+                print("⚠️ AppleScript failed: \(err)")
+            }
+        }
+
+        // Optional: wait 0.3s to ensure Finder has time to bring window forward
+        try? await Task.sleep(nanoseconds: 300_000_000)
+    } else {
+        NSWorkspace.shared.open(volume)
+    }
+
+    return await withCheckedContinuation { continuation in
+        let alert = NSAlert()
+        alert.messageText = "Thumb Drive Not Empty"
+        alert.informativeText = "Files already exist on this drive. Do you want to wipe it, continue without wiping, or cancel the workflow?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Wipe")
+        alert.addButton(withTitle: "Skip")
+        alert.addButton(withTitle: "Cancel")
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            continuation.resume(returning: .wipe)
+        case .alertSecondButtonReturn:
+            continuation.resume(returning: .skip)
+        default:
+            continuation.resume(returning: .cancel)
+        }
+    }
+}
+
+// MARK: - File system helpers
+
+/// Returns non-hidden contents of a folder
 func meaningfulContents(of folder: URL) -> [URL] {
     let fm = FileManager.default
     return (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
         .filter { !$0.lastPathComponent.hasPrefix(".") }) ?? []
 }
 
-/// Prompts the user to confirm wiping a thumb drive
-func confirmWipe() async -> WipeChoice {
-    return .skip
-}
-
-/// Removes all contents of a folder
+/// Removes all user-writable contents of a folder (skips system-protected items)
 func removeContents(of folder: URL) throws {
     let fm = FileManager.default
     let items = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+
     for item in items {
-        try fm.removeItem(at: item)
+        let name = item.lastPathComponent
+        if name.hasPrefix(".") || name == ".DocumentRevisions-V100" || name == ".Spotlight-V100" {
+            continue
+        }
+
+        do {
+            try fm.removeItem(at: item)
+        } catch {
+            print("⚠️ Skipped item due to error: \(item.path) — \(error)")
+        }
     }
 }
 
-/// Copies contents from one folder to another
+/// Copies all contents from one folder to another
 func copyContents(from src: URL, to dst: URL) throws {
     let fm = FileManager.default
     let items = try fm.contentsOfDirectory(at: src, includingPropertiesForKeys: nil)
     for item in items {
         let destURL = dst.appendingPathComponent(item.lastPathComponent)
         try fm.copyItem(at: item, to: destURL)
+    }
+}
+
+/// Moves all contents from one folder to another
+func moveContents(from src: URL, to dst: URL) throws {
+    let fm = FileManager.default
+    let items = try fm.contentsOfDirectory(at: src, includingPropertiesForKeys: nil)
+    for item in items {
+        let destURL = dst.appendingPathComponent(item.lastPathComponent)
+        try fm.moveItem(at: item, to: destURL)
     }
 }
 
@@ -110,33 +176,9 @@ func deleteCDLFiles(in folder: URL) {
     }
 }
 
-/// Moves contents from one folder to another
-func moveContents(from src: URL, to dst: URL) throws {
-    let fm = FileManager.default
-    let items = try fm.contentsOfDirectory(at: src, includingPropertiesForKeys: nil)
-    for item in items {
-        let destURL = dst.appendingPathComponent(item.lastPathComponent)
-        try fm.moveItem(at: item, to: destURL)
-    }
-}
-
 /// Returns the first file with a matching extension in a folder
 func firstFile(withExtensions exts: [String], in folder: URL) -> URL? {
     let fm = FileManager.default
     guard let items = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { return nil }
     return items.first { exts.contains($0.pathExtension.lowercased()) }
-}
-
-// MARK: - CDLSettings extension for volumeName
-
-extension CDLSettings {
-    func volumeName() -> String? {
-        return volumeURL()?.lastPathComponent
-    }
-}
-
-// MARK: - autoTrust helper (uses DriveRegistry)
-
-func autoTrust(_ drive: MountedDrive) {
-    DriveRegistry.shared.registerCandidate(drive)
 }

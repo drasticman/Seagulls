@@ -103,15 +103,4 @@ func candidateDrives(from mounted: [MountedDrive]) -> [CandidateDrive] {
     return filtered.map { CandidateDrive(mountedDrive: $0, reason: "Removable & sane path") }
 }
 
-// MARK: - Auto-trust allowed drives
 
-func autoTrustAllowedDrives(from drives: [MountedDrive]) {
-    for drive in drives {
-        if drive.volumeName == "DIT_CDLs" {
-            DriveRegistry.shared.registerCandidate(drive)
-            #if DEBUG
-            print("Auto-trusted drive: \(drive.volumeName ?? "unknown") — \(drive.url.path)")
-            #endif
-        }
-    }
-}

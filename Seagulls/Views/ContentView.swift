@@ -3,7 +3,7 @@
 //  Seagulls
 //
 //  Created by Andy Bader on 2/4/26
-//  Updated 2/11/26 — compiled stubs added
+//  Updated 2/13/26 — fully self-contained workflow with improved wipe handling and version footer
 //
 
 import SwiftUI
@@ -19,6 +19,8 @@ struct ContentView: View {
     @State private var settingsLoaded = false
     @State private var loadedSettings: CDLSettings?
     @State private var volumeWatcherTask: Task<Void, Never>?
+
+    @StateObject private var driveRegistry = DriveRegistryModel.shared
 
     var body: some View {
         VStack(spacing: 20) {
@@ -37,8 +39,29 @@ struct ContentView: View {
                     if let volume = volumeURL {
                         Text("Thumb Drive Volume: \(volume.path)")
                     } else {
-                        Text("Thumb Drive Volume: Not mounted")
-                            .foregroundColor(.secondary)
+                        VStack {
+                            Text("Thumb Drive Volume: Not mounted")
+                                .foregroundColor(.secondary)
+
+                            // List untrusted candidate drives
+                            let mounted = mountedRemovableDrives()
+                            let candidates = candidateDrives(from: mounted).map { $0.mountedDrive }
+                            let untrusted = candidates.filter { !driveRegistry.isTrusted($0) }
+
+                            ForEach(untrusted, id: \.url) { drive in
+                                HStack {
+                                    Text("Untrusted: \(drive.volumeName ?? "Unknown")")
+                                        .foregroundColor(.orange)
+                                    Button("Trust") {
+                                        Task { @MainActor in
+                                            trustDrive(drive)
+                                        }
+                                    }
+                                }
+                            }
+
+                        }
+
                     }
 
                     Button("Change Settings") { showingSetup = true }
@@ -50,6 +73,7 @@ struct ContentView: View {
                     }
                     .disabled(volumeURL == nil)
                     .keyboardShortcut(.defaultAction)
+
                 }
 
             } else {
@@ -59,8 +83,16 @@ struct ContentView: View {
 
             Divider()
 
+            // Status message
             Text("Status: \(statusMessage)")
                 .foregroundColor(.gray)
+
+            // --- Version footer ---
+            let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+            let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+            Text("Seagulls v\(appVersion) (Build \(buildNumber))")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
         .padding()
         .frame(minWidth: 520, minHeight: 320)
@@ -81,33 +113,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Refresh Drives
-
-    func refreshMountedDrives() {
-        let mounted = mountedRemovableDrives()
-        let candidates = candidateDrives(from: mounted)
-
-        // Look for DIT_CDLs specifically (name-based for now)
-        let detectedDrive = candidates
-            .map { $0.mountedDrive }
-            .first { $0.volumeName == "DIT_CDLs" }
-
-        if let drive = detectedDrive {
-            // Drive is present
-            if volumeURL != drive.url {
-                volumeURL = drive.url
-                statusMessage = "DIT_CDLs thumb drive detected — ready to start"
-            }
-        } else {
-            // Drive is NOT present
-            if volumeURL != nil {
-                volumeURL = nil
-                statusMessage = "DIT_CDLs thumb drive disconnected"
-            }
-        }
-    }
-
-
     // MARK: - Settings
 
     func loadSettings() {
@@ -119,9 +124,11 @@ struct ContentView: View {
             let data = try? Data(contentsOf: url),
             let settings = try? JSONDecoder().decode(CDLSettings.self, from: data)
         else {
-            statusMessage = "No settings found — please set up folders"
-            settingsLoaded = false
-            loadedSettings = nil
+            Task { @MainActor in
+                statusMessage = "No settings found — please set up folders"
+                settingsLoaded = false
+                loadedSettings = nil
+            }
             return
         }
 
@@ -131,11 +138,22 @@ struct ContentView: View {
         desktopCDLURL = settings.desktopCDLURL()
         archiveRootURL = settings.archiveRootURL()
         volumeURL = settings.volumeURL()
-
-        if volumeURL == nil {
-            statusMessage = "Settings loaded — waiting for thumb drive"
+        
+        if let url = volumeURL,
+           let uuid = try? url.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString {
+            print("📌 Saved volume from settings:")
+            print("   name: \(url.lastPathComponent)")
+            print("   uuid: \(uuid)")
         } else {
-            statusMessage = "Settings loaded"
+            print("⚠️ Saved volume has no UUID or failed to resolve")
+        }
+
+        Task { @MainActor in
+            if volumeURL == nil {
+                statusMessage = "Settings loaded — waiting for thumb drive"
+            } else {
+                statusMessage = "Settings loaded"
+            }
         }
 
         startVolumeWatcher()
@@ -146,7 +164,7 @@ struct ContentView: View {
     func startVolumeWatcher() {
         volumeWatcherTask?.cancel()
 
-        volumeWatcherTask = Task {
+        volumeWatcherTask = Task { @MainActor in
             while !Task.isCancelled {
                 refreshMountedDrives()
                 try? await Task.sleep(nanoseconds: 500_000_000)
@@ -154,6 +172,31 @@ struct ContentView: View {
         }
     }
 
+    @MainActor
+    func refreshMountedDrives() {
+        let mounted = mountedRemovableDrives()
+        let candidates = candidateDrives(from: mounted).map { $0.mountedDrive }
+
+        if let trustedDrive = candidates.first(where: { driveRegistry.isTrusted($0) }) {
+            if volumeURL != trustedDrive.url {
+                volumeURL = trustedDrive.url
+                statusMessage = "\(trustedDrive.volumeName ?? "Thumb drive") detected — ready to start"
+                print("✅ Trusted drive selected: \(trustedDrive.volumeName ?? "unknown")")
+            }
+        } else if volumeURL != nil {
+            volumeURL = nil
+            statusMessage = "Trusted thumb drive disconnected"
+        }
+    }
+
+    // MARK: - Trusting a drive
+
+    @MainActor
+    func trustDrive(_ drive: MountedDrive) {
+        driveRegistry.add(drive)
+        volumeURL = drive.url
+        statusMessage = "\(drive.volumeName ?? "Thumb drive") trusted — ready to start"
+    }
 
     // MARK: - Main Workflow
 
@@ -162,8 +205,7 @@ struct ContentView: View {
               let archiveRoot = archiveRootURL,
               let volume = volumeURL else { return }
 
-        Task {
-
+        Task { @MainActor in
             // 1️⃣ Shooting day
             let shootingDay = await askText(title: "Shooting Day", message: "Enter the shooting day (e.g. 6):")
             guard !shootingDay.isEmpty else {
@@ -178,7 +220,7 @@ struct ContentView: View {
                 return
             }
 
-            // 3️⃣ Wait for files
+            // 3️⃣ Wait for CDL/JPGs
             statusMessage = "Waiting for files in CDL folder…"
             await waitForFiles(in: desktop)
 
@@ -186,10 +228,10 @@ struct ContentView: View {
             statusMessage = "Waiting for thumb drive…"
             await waitForDrive(at: volume)
 
-            // 5️⃣ Check thumb drive contents
+            // 5️⃣ Check if thumb drive is meaningfully empty
             let visible = meaningfulContents(of: volume)
             if !visible.isEmpty {
-                let choice = await confirmWipe()
+                let choice = await confirmWipe(for: volume)
                 switch choice {
                 case .wipe:
                     do {
@@ -214,10 +256,7 @@ struct ContentView: View {
             )
 
             do {
-                try FileManager.default.createDirectory(
-                    at: volumeTarget,
-                    withIntermediateDirectories: true
-                )
+                try FileManager.default.createDirectory(at: volumeTarget, withIntermediateDirectories: true)
             } catch {
                 statusMessage = "Failed to create folder on thumb drive"
                 return
@@ -235,22 +274,13 @@ struct ContentView: View {
             deleteCDLFiles(in: desktop)
 
             // 9️⃣ Archive (Day X only)
-            let archiveDay = archiveRoot.appendingPathComponent(
-                "Day \(shootingDay)",
-                isDirectory: true
-            )
-
-            try? FileManager.default.createDirectory(
-                at: archiveDay,
-                withIntermediateDirectories: true
-            )
-
+            let archiveDay = archiveRoot.appendingPathComponent("Day \(shootingDay)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: archiveDay, withIntermediateDirectories: true)
             try? moveContents(from: desktop, to: archiveDay)
 
             // 🔟 Reveal + QC
             NSWorkspace.shared.open(volumeTarget)
-
-            if let firstJPG = firstFile(withExtensions: ["jpg", "jpeg"], in: volumeTarget) {
+            if let firstJPG = firstFile(withExtensions: ["jpg","jpeg"], in: volumeTarget) {
                 NSWorkspace.shared.open(firstJPG)
             }
 
@@ -258,10 +288,11 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Waiting
+    // MARK: - Waiting helpers
 
     func waitForFiles(in folder: URL) async {
         let fm = FileManager.default
+
         var lastSnapshot: (count: Int, size: Int64) = (0, 0)
         var stableSeconds = 0
         let requiredStableSeconds = 3
@@ -275,31 +306,29 @@ struct ContentView: View {
                 options: [.skipsHiddenFiles]
             ) else {
                 stableSeconds = 0
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 continue
             }
 
-            let deliverables = items.filter {
-                ["cdl", "jpg", "jpeg"].contains($0.pathExtension.lowercased())
-            }
+            let deliverables = items.filter { ["cdl", "jpg", "jpeg"].contains($0.pathExtension.lowercased()) }
 
             if !firstFileDetected && !deliverables.isEmpty {
                 firstFileDetected = true
-                DispatchQueue.main.async {
+                await MainActor.run {
                     statusMessage = "Waiting for files to finish saving…"
                 }
             }
 
             if firstFileDetected && deliverables.count != lastReportedCount {
                 lastReportedCount = deliverables.count
-                DispatchQueue.main.async {
+                await MainActor.run {
                     statusMessage = "Waiting for files… (\(deliverables.count) file(s) detected)"
                 }
             }
 
             if deliverables.isEmpty {
                 stableSeconds = 0
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 continue
             }
 
@@ -320,7 +349,7 @@ struct ContentView: View {
                 return
             }
 
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
     }
 
@@ -329,10 +358,7 @@ struct ContentView: View {
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
     }
-
-
 }
-
 
 #Preview {
     ContentView()

@@ -7,14 +7,6 @@
 
 import Foundation
 
-struct TrustedDrive: Codable, Identifiable, Equatable {
-    let id: UUID                   // internal, app-level identity
-    let volumeUUID: UUID?
-    let volumeName: String?
-    let capacityBytes: Int64?
-    let addedAt: Date
-}
-
 struct MountedDrive {
     let url: URL
     let volumeUUID: UUID?
