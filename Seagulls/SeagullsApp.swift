@@ -31,3 +31,5 @@ struct SeagullsApp: App {
         .modelContainer(sharedModelContainer)
     }
 }
+
+

@@ -3,7 +3,7 @@
 //  Seagulls
 //
 //  Created by Andy Bader on 2/4/26
-//  Updated 2/13/26 — fully self-contained workflow with improved wipe handling and version footer
+//  Updated 2/14/26 — mounted/untrusted drives moved out of body, smooth animations
 //
 
 import SwiftUI
@@ -19,6 +19,9 @@ struct ContentView: View {
     @State private var settingsLoaded = false
     @State private var loadedSettings: CDLSettings?
     @State private var volumeWatcherTask: Task<Void, Never>?
+    @State private var isRunning = false
+
+    @State private var untrustedDrives: [MountedDrive] = []
 
     @StateObject private var driveRegistry = DriveRegistryModel.shared
 
@@ -38,17 +41,14 @@ struct ContentView: View {
 
                     if let volume = volumeURL {
                         Text("Thumb Drive Volume: \(volume.path)")
+                            .transition(.opacity)
                     } else {
                         VStack {
                             Text("Thumb Drive Volume: Not mounted")
+                                .transition(.opacity)
                                 .foregroundColor(.secondary)
 
-                            // List untrusted candidate drives
-                            let mounted = mountedRemovableDrives()
-                            let candidates = candidateDrives(from: mounted).map { $0.mountedDrive }
-                            let untrusted = candidates.filter { !driveRegistry.isTrusted($0) }
-
-                            ForEach(untrusted, id: \.url) { drive in
+                            ForEach(untrustedDrives, id: \.url) { drive in
                                 HStack {
                                     Text("Untrusted: \(drive.volumeName ?? "Unknown")")
                                         .foregroundColor(.orange)
@@ -59,9 +59,7 @@ struct ContentView: View {
                                     }
                                 }
                             }
-
                         }
-
                     }
 
                     Button("Change Settings") { showingSetup = true }
@@ -71,7 +69,7 @@ struct ContentView: View {
                     Button("Start Workflow") {
                         startWorkflow()
                     }
-                    .disabled(volumeURL == nil)
+                    .disabled(volumeURL == nil || isRunning)
                     .keyboardShortcut(.defaultAction)
 
                 }
@@ -84,8 +82,16 @@ struct ContentView: View {
             Divider()
 
             // Status message
-            Text("Status: \(statusMessage)")
-                .foregroundColor(.gray)
+            HStack(spacing: 8) {
+                if isRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Text("Status: \(statusMessage)")
+                    .foregroundColor(.gray)
+                    .animation(.easeInOut(duration: 0.2), value: statusMessage)
+            }
 
             // --- Version footer ---
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
@@ -138,7 +144,7 @@ struct ContentView: View {
         desktopCDLURL = settings.desktopCDLURL()
         archiveRootURL = settings.archiveRootURL()
         volumeURL = settings.volumeURL()
-        
+
         if let url = volumeURL,
            let uuid = try? url.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString {
             print("📌 Saved volume from settings:")
@@ -159,7 +165,7 @@ struct ContentView: View {
         startVolumeWatcher()
     }
 
-    // MARK: - Volume watcher (poll for new mounts)
+    // MARK: - Volume watcher
 
     func startVolumeWatcher() {
         volumeWatcherTask?.cancel()
@@ -177,17 +183,35 @@ struct ContentView: View {
         let mounted = mountedRemovableDrives()
         let candidates = candidateDrives(from: mounted).map { $0.mountedDrive }
 
+        // Pick first trusted drive
         if let trustedDrive = candidates.first(where: { driveRegistry.isTrusted($0) }) {
             if volumeURL != trustedDrive.url {
-                volumeURL = trustedDrive.url
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    volumeURL = trustedDrive.url
+                }
                 statusMessage = "\(trustedDrive.volumeName ?? "Thumb drive") detected — ready to start"
                 print("✅ Trusted drive selected: \(trustedDrive.volumeName ?? "unknown")")
             }
+        } else if !driveRegistry.allTrusted().isEmpty, volumeURL == nil {
+            // Pick first trusted drive even if it's not currently mounted
+            let firstTrusted = driveRegistry.allTrusted().first!
+            volumeURL = mounted.first(where: { $0.volumeUUID == firstTrusted.volumeUUID })?.url
+            if volumeURL != nil {
+                statusMessage = "\(firstTrusted.volumeName ?? "Thumb drive") detected — ready to start"
+            } else {
+                statusMessage = "Trusted thumb drive not mounted"
+            }
         } else if volumeURL != nil {
-            volumeURL = nil
+            withAnimation(.easeInOut(duration: 0.2)) {
+                volumeURL = nil
+            }
             statusMessage = "Trusted thumb drive disconnected"
         }
+
+        // Update untrusted drives list
+        untrustedDrives = candidates.filter { !driveRegistry.isTrusted($0) }
     }
+
 
     // MARK: - Trusting a drive
 
@@ -201,11 +225,19 @@ struct ContentView: View {
     // MARK: - Main Workflow
 
     func startWorkflow() {
+        guard !isRunning else { return }
+        isRunning = true
+
         guard let desktop = desktopCDLURL,
               let archiveRoot = archiveRootURL,
-              let volume = volumeURL else { return }
+              let volume = volumeURL else {
+            isRunning = false
+            return
+        }
 
         Task { @MainActor in
+            defer { isRunning = false }
+
             // 1️⃣ Shooting day
             let shootingDay = await askText(title: "Shooting Day", message: "Enter the shooting day (e.g. 6):")
             guard !shootingDay.isEmpty else {

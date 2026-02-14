@@ -19,6 +19,19 @@ struct TrustedDrive: Codable, Identifiable {
 }
 
 @MainActor
+extension DriveRegistryModel {
+    func untrust(_ drive: TrustedDrive) {
+        trustedDrives.removeValue(forKey: drive.volumeUUID)
+        saveToDisk()
+    }
+
+    func forgetAll() {
+        trustedDrives.removeAll()
+        saveToDisk()
+    }
+}
+
+@MainActor
 class DriveRegistryModel: ObservableObject {
     static let shared = DriveRegistryModel()
     
@@ -86,3 +99,5 @@ class DriveRegistryModel: ObservableObject {
         }
     }
 }
+
+
