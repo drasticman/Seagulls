@@ -139,7 +139,7 @@ func removeContents(of folder: URL) throws {
         }
 
         do {
-            try fm.removeItem(at: item)
+            try fm.trashItem(at: item, resultingItemURL: nil)
         } catch {
             print("⚠️ Skipped item due to error: \(item.path) — \(error)")
         }

@@ -1,8 +1,5 @@
 //
 //  SeagullsApp.swift
-//  Seagulls
-//
-//  Created by Andy Bader on 2/4/26.
 //
 
 import SwiftUI
@@ -11,11 +8,16 @@ import SwiftData
 @main
 struct SeagullsApp: App {
 
+    @Environment(\.openWindow) private var openWindow
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Item.self,
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let modelConfiguration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false
+        )
 
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
@@ -29,7 +31,20 @@ struct SeagullsApp: App {
             ContentView()
         }
         .modelContainer(sharedModelContainer)
+        .commands {
+            CommandGroup(replacing: .help) {
+                Button("Seagulls Help") {
+                    openWindow(id: "help")
+                }
+            }
+        }
+
+        // Floating Help Window
+        Window("Seagulls Help", id: "help") {
+            HelpView()
+                .background(WindowLevelAccessor(level: .floating))
+        }
+        .windowResizability(.contentSize)
+        .windowToolbarStyle(.unifiedCompact)
     }
 }
-
-

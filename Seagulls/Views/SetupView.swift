@@ -2,10 +2,11 @@
 //  SetupView.swift
 //  Seagulls
 //
-//  Updated 2/14/26 — scrollable trusted drives, fixed UUID optional binding, TrustedDriveRow
+//  Updated 2/18/26 — derived setup completion, no boolean flag
 //
 
 import SwiftUI
+import AppKit
 
 struct SetupView: View {
     @Binding var desktopCDLURL: URL?
@@ -16,14 +17,19 @@ struct SetupView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var driveRegistry = DriveRegistryModel.shared
 
+    // ✅ Derived setup completion
+    private var isSetupValid: Bool {
+        desktopCDLURL != nil && archiveRootURL != nil
+    }
+
     var body: some View {
         VStack(spacing: 20) {
             Text("Setup Folders")
                 .font(.title)
 
             // MARK: - Folder Pickers
-            folderPicker(label: "Desktop CDL Folder", url: $desktopCDLURL)
-            folderPicker(label: "Archive Root", url: $archiveRootURL)
+            folderPicker(label: "CDL Folder", url: $desktopCDLURL)
+            folderPicker(label: "Framegrab Archive", url: $archiveRootURL)
 
             Divider()
 
@@ -50,10 +56,12 @@ struct SetupView: View {
                                     untrustAction: {
                                         Task { @MainActor in
                                             driveRegistry.untrust(drive)
+
                                             if let vol = volumeURL,
                                                vol.lastPathComponent == drive.volumeName {
                                                 volumeURL = nil
                                             }
+
                                             statusMessage = "Drive \(drive.volumeName ?? "Unknown") untrusted"
                                         }
                                     }
@@ -82,7 +90,7 @@ struct SetupView: View {
             Button("Save Settings") {
                 saveSettings()
             }
-            .disabled(desktopCDLURL == nil || archiveRootURL == nil)
+            .disabled(!isSetupValid)
             .padding(.top, 6)
 
             Spacer()
@@ -120,29 +128,19 @@ struct SetupView: View {
     // MARK: - Save Settings
     func saveSettings() {
         guard let desktop = desktopCDLURL,
-              let archive = archiveRootURL else { return }
-
-        do {
-            let settings = try CDLSettings(
-                desktopURL: desktop,
-                archiveURL: archive,
-                volumeURL: volumeURL ?? desktop // fallback
-            )
-
-            let appSupport = FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Seagulls")
-            try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-
-            let fileURL = appSupport.appendingPathComponent("settings.json")
-            let data = try JSONEncoder().encode(settings)
-            try data.write(to: fileURL)
-
-            statusMessage = "Settings saved"
-            dismiss()
-        } catch {
-            statusMessage = "Failed to save settings: \(error.localizedDescription)"
+              let archive = archiveRootURL else {
+            statusMessage = "Please select both required folders."
+            return
         }
+
+        // volumeURL is optional and flexible; keep your fallback
+        let vol = volumeURL ?? desktop
+
+        let settings = CDLSettings(desktopURL: desktop, archiveURL: archive, volumeURL: vol)
+        CDLSettingsStore.save(settings)
+
+        statusMessage = "Settings saved"
+        dismiss()
     }
 
     // MARK: - Helpers
@@ -155,7 +153,8 @@ struct SetupView: View {
     }
 }
 
-// MARK: - Trusted Drive Row Subview
+
+// MARK: - Trusted Drive Row
 struct TrustedDriveRow: View {
     let drive: TrustedDrive
     var isMounted: Bool
@@ -166,29 +165,38 @@ struct TrustedDriveRow: View {
             VStack(alignment: .leading) {
                 Text(drive.volumeName ?? "Unknown")
                     .fontWeight(.medium)
+
                 if let capacity = drive.capacityBytes {
                     Text("\(ByteCountFormatter.string(fromByteCount: capacity, countStyle: .file))")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+
                 Text("Added: \(drive.addedAt.formatted(date: .numeric, time: .shortened))")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
+
             Spacer()
+
             if isMounted {
                 Text("Mounted")
                     .font(.caption)
                     .foregroundColor(.green)
             }
+
             Button("Untrust", action: untrustAction)
-                .buttonStyle(BorderlessButtonStyle())
+                .buttonStyle(.borderless)
                 .foregroundColor(.red)
         }
         .padding(6)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.05)))
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.gray.opacity(0.05))
+        )
     }
 }
+
 
 // MARK: - Preview
 #Preview {

@@ -2,64 +2,97 @@
 //  Settings.swift
 //  Seagulls
 //
-//  Created by Andy Bader on 2/4/26.
+//  Updated 2/18/26 — plain URL storage + migration from old bookmark settings
 //
 
 import Foundation
 
+// MARK: - New settings format (plain URLs)
 struct CDLSettings: Codable {
-    // Bookmarks for sandboxed access
+    var desktopCDLPath: String
+    var archiveRootPath: String
+    var volumePath: String
+
+    var desktopCDLURL: URL { URL(fileURLWithPath: desktopCDLPath) }
+    var archiveRootURL: URL { URL(fileURLWithPath: archiveRootPath) }
+    var volumeURL: URL { URL(fileURLWithPath: volumePath) }
+
+    init(desktopURL: URL, archiveURL: URL, volumeURL: URL) {
+        self.desktopCDLPath = desktopURL.path
+        self.archiveRootPath = archiveURL.path
+        self.volumePath = volumeURL.path
+    }
+}
+
+// MARK: - OLD settings format (bookmarks) for migration only
+private struct LegacyCDLSettings: Codable {
     var desktopCDLBookmark: Data
     var archiveRootBookmark: Data
     var volumeBookmark: Data
 
-    // MARK: - Helper methods to resolve URLs from bookmarks
-    func desktopCDLURL() -> URL? {
-        try? url(from: desktopCDLBookmark)
-    }
+    func desktopCDLURL() -> URL? { try? url(from: desktopCDLBookmark) }
+    func archiveRootURL() -> URL? { try? url(from: archiveRootBookmark) }
+    func volumeURL() -> URL? { try? url(from: volumeBookmark) }
 
-    func archiveRootURL() -> URL? {
-        try? url(from: archiveRootBookmark)
-    }
-
-    func volumeURL() -> URL? {
-        try? url(from: volumeBookmark)
-    }
-
-    // MARK: - Display descriptions (for UI)
-    var desktopCDLBookmarkDescription: String {
-        desktopCDLURL()?.lastPathComponent ?? "Unknown"
-    }
-
-    var archiveRootBookmarkDescription: String {
-        archiveRootURL()?.lastPathComponent ?? "Unknown"
-    }
-
-    var volumeBookmarkDescription: String {
-        volumeURL()?.lastPathComponent ?? "Unknown"
-    }
-
-    // MARK: - Convenience initializer from URLs
-    init(desktopURL: URL, archiveURL: URL, volumeURL: URL) throws {
-        desktopCDLBookmark = try desktopURL.bookmarkData(options: .withSecurityScope,
-                                                          includingResourceValuesForKeys: nil,
-                                                          relativeTo: nil)
-        archiveRootBookmark = try archiveURL.bookmarkData(options: .withSecurityScope,
-                                                          includingResourceValuesForKeys: nil,
-                                                          relativeTo: nil)
-        self.volumeBookmark = try volumeURL.bookmarkData(options: .withSecurityScope,
-                                                         includingResourceValuesForKeys: nil,
-                                                         relativeTo: nil)
-    }
-
-    // MARK: - Helper to resolve a bookmark to a URL
     private func url(from bookmark: Data) throws -> URL {
         var isStale = false
-        let url = try URL(resolvingBookmarkData: bookmark,
-                          options: .withSecurityScope,
-                          relativeTo: nil,
-                          bookmarkDataIsStale: &isStale)
-        return url
+        // Try both, because older writes used .withSecurityScope
+        if let url = try? URL(resolvingBookmarkData: bookmark,
+                              options: [.withSecurityScope],
+                              relativeTo: nil,
+                              bookmarkDataIsStale: &isStale) {
+            return url
+        }
+        return try URL(resolvingBookmarkData: bookmark,
+                       options: [],
+                       relativeTo: nil,
+                       bookmarkDataIsStale: &isStale)
     }
 }
 
+// MARK: - Load + migrate helper
+enum CDLSettingsStore {
+
+    static func settingsFileURL() -> URL {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Seagulls/settings.json")
+    }
+
+    static func load() -> CDLSettings? {
+        let url = settingsFileURL()
+        guard let data = try? Data(contentsOf: url) else { return nil }
+
+        // 1) Try new plain format first
+        if let decoded = try? JSONDecoder().decode(CDLSettings.self, from: data) {
+            return decoded
+        }
+
+        // 2) Try legacy bookmark format and migrate
+        if let legacy = try? JSONDecoder().decode(LegacyCDLSettings.self, from: data),
+           let desktop = legacy.desktopCDLURL(),
+           let archive = legacy.archiveRootURL(),
+           let volume = legacy.volumeURL() {
+
+            let migrated = CDLSettings(desktopURL: desktop, archiveURL: archive, volumeURL: volume)
+            save(migrated) // overwrite file in new format
+            return migrated
+        }
+
+        return nil
+    }
+
+    static func save(_ settings: CDLSettings) {
+        let url = settingsFileURL()
+
+        let folder = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        do {
+            let data = try JSONEncoder().encode(settings)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            print("Failed to save settings: \(error)")
+        }
+    }
+}
