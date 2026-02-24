@@ -9,6 +9,9 @@
 import Foundation
 import AppKit
 
+@MainActor
+weak var seagullsActivePromptSheet: NSWindow?
+
 // MARK: - WipeChoice enum
 enum WipeChoice {
     case wipe
@@ -19,6 +22,7 @@ enum WipeChoice {
 // MARK: - User prompts
 
 /// Asks the user for free-text input (returns empty string if cancelled)
+@MainActor
 func askText(title: String, message: String) async -> String {
     await withCheckedContinuation { continuation in
         let alert = NSAlert()
@@ -27,20 +31,33 @@ func askText(title: String, message: String) async -> String {
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
-        
+
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         alert.accessoryView = input
-        
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            continuation.resume(returning: input.stringValue)
+
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            seagullsActivePromptSheet = alert.window
+            alert.beginSheetModal(for: window) { response in
+                seagullsActivePromptSheet = nil
+                if response == .alertFirstButtonReturn {
+                    continuation.resume(returning: input.stringValue)
+                } else {
+                    continuation.resume(returning: "")
+                }
+            }
         } else {
-            continuation.resume(returning: "")
+            // Fallback: blocks, but only when no window exists (rare)
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                continuation.resume(returning: input.stringValue)
+            } else {
+                continuation.resume(returning: "")
+            }
         }
     }
 }
-
 /// Asks the user to enter a break name (AM/PM/All Day)
+@MainActor
 func askBreak() async -> String {
     await withCheckedContinuation { continuation in
         let alert = NSAlert()
@@ -49,32 +66,43 @@ func askBreak() async -> String {
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
-        
+
         let comboBox = NSComboBox(frame: NSRect(x: 0, y: 0, width: 150, height: 26))
         comboBox.addItems(withObjectValues: ["AM", "PM", "All Day"])
         comboBox.selectItem(at: 0)
         comboBox.isEditable = true
-        
         alert.accessoryView = comboBox
-        
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            continuation.resume(returning: comboBox.stringValue)
+
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            seagullsActivePromptSheet = alert.window
+            alert.beginSheetModal(for: window) { response in
+                seagullsActivePromptSheet = nil
+                if response == .alertFirstButtonReturn {
+                    continuation.resume(returning: comboBox.stringValue)
+                } else {
+                    continuation.resume(returning: "")
+                }
+            }
         } else {
-            continuation.resume(returning: "")
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                continuation.resume(returning: comboBox.stringValue)
+            } else {
+                continuation.resume(returning: "")
+            }
         }
     }
 }
 
 /// Ask user whether to wipe a non-empty thumb drive, showing its root folder in Finder
 /// with all files selected for inspection
+@MainActor
 func confirmWipe(for volume: URL) async -> WipeChoice {
     let fm = FileManager.default
     let items = (try? fm.contentsOfDirectory(at: volume, includingPropertiesForKeys: nil)
-                    .filter { !$0.lastPathComponent.hasPrefix(".") }) ?? []
+        .filter { !$0.lastPathComponent.hasPrefix(".") }) ?? []
 
     if !items.isEmpty {
-        // AppleScript: open folder, bring Finder to front, select files
         let appleScript = """
         tell application "Finder"
             activate
@@ -90,8 +118,6 @@ func confirmWipe(for volume: URL) async -> WipeChoice {
                 print("⚠️ AppleScript failed: \(err)")
             }
         }
-
-        // Optional: wait 0.3s to ensure Finder has time to bring window forward
         try? await Task.sleep(nanoseconds: 300_000_000)
     } else {
         NSWorkspace.shared.open(volume)
@@ -106,18 +132,33 @@ func confirmWipe(for volume: URL) async -> WipeChoice {
         alert.addButton(withTitle: "Skip")
         alert.addButton(withTitle: "Cancel")
 
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            continuation.resume(returning: .wipe)
-        case .alertSecondButtonReturn:
-            continuation.resume(returning: .skip)
-        default:
-            continuation.resume(returning: .cancel)
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            seagullsActivePromptSheet = alert.window
+            alert.beginSheetModal(for: window) { response in
+                seagullsActivePromptSheet = nil
+                switch response {
+                case .alertFirstButtonReturn:
+                    continuation.resume(returning: .wipe)
+                case .alertSecondButtonReturn:
+                    continuation.resume(returning: .skip)
+                default:
+                    continuation.resume(returning: .cancel)
+                }
+            }
+        } else {
+            // Rare fallback
+            let response = alert.runModal()
+            switch response {
+            case .alertFirstButtonReturn:
+                continuation.resume(returning: .wipe)
+            case .alertSecondButtonReturn:
+                continuation.resume(returning: .skip)
+            default:
+                continuation.resume(returning: .cancel)
+            }
         }
     }
 }
-
 // MARK: - File system helpers
 
 /// Returns non-hidden contents of a folder

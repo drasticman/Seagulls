@@ -29,6 +29,9 @@ struct SeagullsApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear {
+                    LocalControlServer.shared.start(port: 7070)
+                }
         }
         .modelContainer(sharedModelContainer)
         .commands {
@@ -47,4 +50,5 @@ struct SeagullsApp: App {
         .windowResizability(.contentSize)
         .windowToolbarStyle(.unifiedCompact)
     }
+
 }

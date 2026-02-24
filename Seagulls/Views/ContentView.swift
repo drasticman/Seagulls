@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var untrustedDrives: [MountedDrive] = []
 
     @StateObject private var driveRegistry = DriveRegistryModel.shared
+    @StateObject private var bridge = StreamDeckBridge.shared
 
     var body: some View {
         VStack(spacing: 20) {
@@ -104,6 +105,7 @@ struct ContentView: View {
             logAllMountedVolumes()
             loadSettings()
             evaluateSetupCompletion()
+            bridge.updateCachedStatusJSON()
 
             // ✅ Automatically show setup on first run
             if !settingsLoaded {
@@ -119,6 +121,44 @@ struct ContentView: View {
             if !isShowing {
                 loadSettings()
                 evaluateSetupCompletion()
+            }
+        }
+        
+        .onChange(of: statusMessage) { _, newValue in
+            bridge.statusMessage = newValue
+            bridge.updateCachedStatusJSON()
+        }
+        .onChange(of: isRunning) { _, newValue in
+            bridge.isRunning = newValue
+            bridge.updateCachedStatusJSON()
+        }
+
+        .onReceive(NotificationCenter.default.publisher(for: .sdStartWorkflow)) { _ in
+            startWorkflow()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sdTrustFirstUntrusted)) { _ in
+            if let first = untrustedDrives.first {
+                trustDrive(first)
+            } else {
+                statusMessage = "No untrusted drive to trust"
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sdTrustByName)) { note in
+            guard let name = note.userInfo?["name"] as? String else { return }
+            if let match = untrustedDrives.first(where: { ($0.volumeName ?? "") == name }) {
+                trustDrive(match)
+            } else {
+                statusMessage = "Untrusted drive '\(name)' not found"
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sdTrustByUUID)) { note in
+            guard let uuidString = note.userInfo?["uuid"] as? String,
+                  let uuid = UUID(uuidString: uuidString) else { return }
+
+            if let match = untrustedDrives.first(where: { $0.volumeUUID == uuid }) {
+                trustDrive(match)
+            } else {
+                statusMessage = "Untrusted drive UUID not found"
             }
         }
 
@@ -204,6 +244,25 @@ struct ContentView: View {
         }
 
         untrustedDrives = candidates.filter { !driveRegistry.isTrusted($0) }
+        
+        bridge.untrustedDrives = untrustedDrives.map { d in
+            StreamDeckBridge.DriveInfo(
+                uuid: d.volumeUUID?.uuidString,
+                name: d.volumeName,
+                capacityBytes: d.capacityBytes
+            )
+        }
+        if volumeURL != nil {
+            bridge.driveState = .trustedPresent
+            bridge.trustedVolumeName = volumeURL?.lastPathComponent
+        } else if !untrustedDrives.isEmpty {
+            bridge.driveState = .untrustedPresent
+            bridge.trustedVolumeName = nil
+        } else {
+            bridge.driveState = .noDrive
+            bridge.trustedVolumeName = nil
+        }
+        bridge.updateCachedStatusJSON()
     }
 
     @MainActor
@@ -229,13 +288,13 @@ struct ContentView: View {
         Task { @MainActor in
             defer { isRunning = false }
 
-            let shootingDay = await askText(title: "Shooting Day", message: "Enter the shooting day (e.g. 6):")
+            let shootingDay = await PromptBroker.shared.requestShootingDay()
             guard !shootingDay.isEmpty else {
                 statusMessage = "Workflow cancelled"
                 return
             }
 
-            let breakName = await askBreak()
+            let breakName = await PromptBroker.shared.requestBreakName()
             guard !breakName.isEmpty else {
                 statusMessage = "Workflow cancelled"
                 return
@@ -249,18 +308,28 @@ struct ContentView: View {
 
             let visible = meaningfulContents(of: volume)
             if !visible.isEmpty {
-                let choice = await confirmWipe(for: volume)
+
+                statusMessage = "Thumb drive not empty — awaiting wipe / skip / cancel"
+
+                let choice = await PromptBroker.shared.requestWipeChoice(
+                    volumeURL: volume,
+                    volumeName: volume.lastPathComponent
+                )
+
                 switch choice {
                 case .wipe:
+                    statusMessage = "Wiping thumb drive…"
                     try? removeContents(of: volume)
+
                 case .skip:
-                    break
+                    statusMessage = "Continuing without wipe…"
+
                 case .cancel:
                     statusMessage = "Workflow cancelled"
                     return
                 }
             }
-
+            
             let volumeTarget = volume.appendingPathComponent(
                 "Day \(shootingDay) \(breakName) CDLs and Framegrabs",
                 isDirectory: true
