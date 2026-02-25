@@ -12,6 +12,7 @@ import Network
 /// Endpoints:
 ///   GET  /status
 ///   POST /workflow/start
+///   POST /workflow/cancel
 ///   POST /drive/trust
 ///   POST /drive/trustByName   (JSON: {"name":"My Drive"})
 ///
@@ -204,6 +205,9 @@ final class LocalControlServer {
 
         case ("POST", "/workflow/start"):
             return handlePost(name: .sdStartWorkflow)
+
+        case ("POST", "/workflow/cancel"):
+            return handlePost(name: .sdCancelWorkflow)
 
         case ("POST", "/drive/trust"):
             return handlePost(name: .sdTrustFirstUntrusted)

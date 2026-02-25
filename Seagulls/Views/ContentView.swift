@@ -18,8 +18,9 @@ struct ContentView: View {
     @State private var settingsLoaded = false
     @State private var loadedSettings: CDLSettings?
     @State private var volumeWatcherTask: Task<Void, Never>?
+    @State private var workflowTask: Task<Void, Never>?
     @State private var isRunning = false
-
+    @State private var escapeMonitor: Any?
     @State private var untrustedDrives: [MountedDrive] = []
 
     @StateObject private var driveRegistry = DriveRegistryModel.shared
@@ -107,14 +108,28 @@ struct ContentView: View {
             evaluateSetupCompletion()
             bridge.updateCachedStatusJSON()
 
-            // ✅ Automatically show setup on first run
             if !settingsLoaded {
                 showingSetup = true
+            }
+
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.keyCode == 53 {
+                    if isRunning {
+                        cancelWorkflow(activate: false)
+                        return nil
+                    }
+                }
+                return event
             }
         }
 
         .onDisappear {
             volumeWatcherTask?.cancel()
+
+            if let monitor = escapeMonitor {
+                NSEvent.removeMonitor(monitor)
+                escapeMonitor = nil
+            }
         }
 
         .onChange(of: showingSetup) { _, isShowing in
@@ -123,7 +138,7 @@ struct ContentView: View {
                 evaluateSetupCompletion()
             }
         }
-        
+
         .onChange(of: statusMessage) { _, newValue in
             bridge.statusMessage = newValue
             bridge.updateCachedStatusJSON()
@@ -132,16 +147,31 @@ struct ContentView: View {
             bridge.isRunning = newValue
             bridge.updateCachedStatusJSON()
         }
+
+        // Stream Deck events
         .onReceive(NotificationCenter.default.publisher(for: .sdOpenSettings)) { _ in
             showingSetup = true
+            NSApp.activate(ignoringOtherApps: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: .sdStartWorkflow)) { _ in
             startWorkflow()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sdCancelWorkflow)) { _ in
+            cancelWorkflow(activate: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: .sdShowMain)) { _ in
             showingSetup = false
             NSApp.activate(ignoringOtherApps: true)
         }
+
+        // Escape cancels while running
+        .onExitCommand {
+            if isRunning {
+                cancelWorkflow(activate: false)
+            }
+        }
+
+        // Trust actions
         .onReceive(NotificationCenter.default.publisher(for: .sdTrustFirstUntrusted)) { _ in
             if let first = untrustedDrives.first {
                 trustDrive(first)
@@ -167,7 +197,6 @@ struct ContentView: View {
                 statusMessage = "Untrusted drive UUID not found"
             }
         }
-
 
         .sheet(isPresented: $showingSetup) {
             SetupView(
@@ -203,12 +232,11 @@ struct ContentView: View {
         startVolumeWatcher()
     }
 
-
     private func evaluateSetupCompletion() {
         if desktopCDLURL != nil && archiveRootURL != nil {
             statusMessage = volumeURL == nil
-                ? "Settings loaded — waiting for thumb drive"
-                : "Settings loaded"
+            ? "Settings loaded — waiting for thumb drive"
+            : "Settings loaded"
         } else {
             statusMessage = "No settings found — please set up folders"
         }
@@ -221,10 +249,12 @@ struct ContentView: View {
 
         refreshMountedDrives()
 
-        volumeWatcherTask = Task { @MainActor in
+        volumeWatcherTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                refreshMountedDrives()
+                await MainActor.run {
+                    refreshMountedDrives()
+                }
             }
         }
     }
@@ -320,8 +350,21 @@ struct ContentView: View {
             return
         }
 
-        Task { @MainActor in
-            defer { isRunning = false }
+        workflowTask?.cancel()
+        workflowTask = Task {
+            await runWorkflow(desktop: desktop, archiveRoot: archiveRoot, volume: volume)
+        }
+    }
+
+    @MainActor
+    private func runWorkflow(desktop: URL, archiveRoot: URL, volume: URL) async {
+        defer {
+            isRunning = false
+            workflowTask = nil
+        }
+
+        do {
+            try Task.checkCancellation()
 
             let shootingDay = await PromptBroker.shared.requestShootingDay()
             guard !shootingDay.isEmpty else {
@@ -329,21 +372,28 @@ struct ContentView: View {
                 return
             }
 
+            try Task.checkCancellation()
+
             let breakName = await PromptBroker.shared.requestBreakName()
             guard !breakName.isEmpty else {
                 statusMessage = "Workflow cancelled"
                 return
             }
 
+            try Task.checkCancellation()
+
             statusMessage = "Waiting for files in CDL folder…"
-            await waitForFiles(in: desktop)
+            try await waitForFiles(in: desktop)
+
+            try Task.checkCancellation()
 
             statusMessage = "Waiting for thumb drive…"
-            await waitForDrive(at: volume)
+            try await waitForDrive(at: volume)
+
+            try Task.checkCancellation()
 
             let visible = meaningfulContents(of: volume)
             if !visible.isEmpty {
-
                 statusMessage = "Thumb drive not empty — awaiting wipe / skip / cancel"
 
                 let choice = await PromptBroker.shared.requestWipeChoice(
@@ -364,7 +414,9 @@ struct ContentView: View {
                     return
                 }
             }
-            
+
+            try Task.checkCancellation()
+
             let volumeTarget = volume.appendingPathComponent(
                 "Day \(shootingDay) \(breakName) CDLs and Framegrabs",
                 isDirectory: true
@@ -379,23 +431,44 @@ struct ContentView: View {
             try? moveContents(from: desktop, to: archiveDay)
 
             NSWorkspace.shared.open(volumeTarget)
-            if let firstJPG = firstFile(withExtensions: ["jpg","jpeg"], in: volumeTarget) {
+            if let firstJPG = firstFile(withExtensions: ["jpg", "jpeg"], in: volumeTarget) {
                 NSWorkspace.shared.open(firstJPG)
             }
 
             statusMessage = "Workflow complete!"
+
+        } catch is CancellationError {
+            statusMessage = "Workflow cancelled"
+        } catch {
+            statusMessage = "Workflow failed: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    func cancelWorkflow(activate: Bool) {
+        if activate {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        workflowTask?.cancel()
+        PromptBroker.shared.cancelPendingPromptIfAny()
+
+        if isRunning {
+            statusMessage = "Workflow cancelled"
         }
     }
 
     // MARK: - Waiting helpers
 
-    func waitForFiles(in folder: URL) async {
+    func waitForFiles(in folder: URL) async throws {
         let fm = FileManager.default
         var lastSnapshot: (cdlCount: Int, jpgCount: Int, size: Int64) = (0, 0, 0)
         var stableSeconds = 0
         let requiredStableSeconds = 3
 
         while true {
+            try Task.checkCancellation()
+
             guard let items = try? fm.contentsOfDirectory(
                 at: folder,
                 includingPropertiesForKeys: [.fileSizeKey],
@@ -404,7 +477,7 @@ struct ContentView: View {
                 await MainActor.run {
                     statusMessage = "Waiting for files… (cannot read folder)"
                 }
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try await Task.sleep(nanoseconds: 1_000_000_000)
                 continue
             }
 
@@ -412,7 +485,6 @@ struct ContentView: View {
             let jpgs = items.filter { ["jpg", "jpeg"].contains($0.pathExtension.lowercased()) }
             let deliverables = cdls + jpgs
 
-            // Live status update
             await MainActor.run {
                 if deliverables.isEmpty {
                     statusMessage = "Waiting for files… (CDLs: 0, JPGs: 0)"
@@ -424,11 +496,10 @@ struct ContentView: View {
             if deliverables.isEmpty {
                 stableSeconds = 0
                 lastSnapshot = (0, 0, 0)
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try await Task.sleep(nanoseconds: 1_000_000_000)
                 continue
             }
 
-            // Compute total size to detect “still copying”
             let size = deliverables.reduce(Int64(0)) { total, url in
                 let values = try? url.resourceValues(forKeys: [.fileSizeKey])
                 return total + Int64(values?.fileSize ?? 0)
@@ -445,7 +516,6 @@ struct ContentView: View {
                 lastSnapshot = currentSnapshot
             }
 
-            // Optional: show stabilization progress once files exist
             await MainActor.run {
                 statusMessage = "Waiting for files… (CDLs: \(cdls.count), JPGs: \(jpgs.count), stable \(stableSeconds)/\(requiredStableSeconds))"
             }
@@ -454,14 +524,14 @@ struct ContentView: View {
                 return
             }
 
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try await Task.sleep(nanoseconds: 1_000_000_000)
         }
     }
 
-
-    func waitForDrive(at folder: URL) async {
+    func waitForDrive(at folder: URL) async throws {
         while !FileManager.default.fileExists(atPath: folder.path) {
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try Task.checkCancellation()
+            try await Task.sleep(nanoseconds: 500_000_000)
         }
     }
 }

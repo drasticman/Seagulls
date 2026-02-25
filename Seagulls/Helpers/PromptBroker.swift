@@ -79,6 +79,36 @@ final class PromptBroker: @unchecked Sendable {
         )
     }
 
+    // MARK: - Workflow cancellation support
+
+    /// Best-effort: clears any pending prompt state, dismisses any visible sheet,
+    /// and resumes the remote continuation with `.cancel`.
+    ///
+    /// Safe to call even when no prompt is pending.
+    @MainActor
+    func cancelPendingPromptIfAny() {
+        // Dismiss local UI first (if present)
+        dismissActivePromptSheetIfPresent()
+
+        let cont: CheckedContinuation<RemoteValue, Never>? = stateLock.withLock { st in
+            let c = st.pendingContinuation
+            st.pendingContinuation = nil
+            st.pendingID = nil
+            st.pendingToken = nil
+            return c
+        }
+
+        // Clear published prompt fields for /status
+        StreamDeckBridge.shared.pendingPromptID = nil
+        StreamDeckBridge.shared.pendingPromptToken = nil
+        StreamDeckBridge.shared.pendingPromptTitle = nil
+        StreamDeckBridge.shared.pendingPromptMessage = nil
+        StreamDeckBridge.shared.pendingPromptOptions = []
+        StreamDeckBridge.shared.updateCachedStatusJSON()
+
+        cont?.resume(returning: .cancel)
+    }
+
     // MARK: - Remote answer (called by HTTP server)
 
     func submitRemoteAnswer(promptToken: String, promptID: String, value: String) -> Bool {
@@ -219,8 +249,15 @@ final class PromptBroker: @unchecked Sendable {
     private func requestText(id: PromptID, title: String, message: String) async -> String {
         let handle = beginPrompt(id: id, title: title, message: message, options: ["OK", "Cancel"])
 
-        let winner = await race(id: id) {
-            await askText(title: title, message: message)
+        let winner: Winner<String> = await withTaskCancellationHandler {
+            await race(id: id) {
+                await askText(title: title, message: message)
+            }
+        } onCancel: {
+            Task { @MainActor in
+                self.cancelPendingPromptIfAny()
+                self.endPrompt(gen: handle.gen)
+            }
         }
 
         switch winner {
@@ -242,8 +279,15 @@ final class PromptBroker: @unchecked Sendable {
     private func requestBreak(id: PromptID, title: String, message: String) async -> String {
         let handle = beginPrompt(id: id, title: title, message: message, options: ["AM", "PM", "All Day", "Other", "Cancel"])
 
-        let winner = await race(id: id) {
-            await askBreak()
+        let winner: Winner<String> = await withTaskCancellationHandler {
+            await race(id: id) {
+                await askBreak()
+            }
+        } onCancel: {
+            Task { @MainActor in
+                self.cancelPendingPromptIfAny()
+                self.endPrompt(gen: handle.gen)
+            }
         }
 
         switch winner {
@@ -298,22 +342,29 @@ final class PromptBroker: @unchecked Sendable {
         }
 
         // Race them.
-        let winner: Winner<WipeChoice> = await withCheckedContinuation { cont in
-            var finished = false
-            func finish(_ w: Winner<WipeChoice>) {
-                guard !finished else { return }
-                finished = true
-                cont.resume(returning: w)
-            }
+        let winner: Winner<WipeChoice> = await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                var finished = false
+                func finish(_ w: Winner<WipeChoice>) {
+                    guard !finished else { return }
+                    finished = true
+                    cont.resume(returning: w)
+                }
 
+                Task { @MainActor in
+                    let v = await localTask.value
+                    finish(.local(v))
+                }
+
+                Task {
+                    let r = await remoteTask.value
+                    finish(.remote(r))
+                }
+            }
+        } onCancel: {
             Task { @MainActor in
-                let v = await localTask.value
-                finish(.local(v))
-            }
-
-            Task {
-                let r = await remoteTask.value
-                finish(.remote(r))
+                self.cancelPendingPromptIfAny()
+                self.endPrompt(gen: handle.gen)
             }
         }
 
