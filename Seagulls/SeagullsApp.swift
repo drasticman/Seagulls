@@ -35,6 +35,7 @@ struct SeagullsApp: App {
         }
         .modelContainer(sharedModelContainer)
         .commands {
+            AppCommands()
             CommandGroup(replacing: .help) {
                 Button("Seagulls Help") {
                     openWindow(id: "help")

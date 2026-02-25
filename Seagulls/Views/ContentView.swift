@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var isRunning = false
     @State private var escapeMonitor: Any?
     @State private var untrustedDrives: [MountedDrive] = []
+    @State private var checkedStreamDeckInstallPrompt = false
 
     @StateObject private var driveRegistry = DriveRegistryModel.shared
     @StateObject private var bridge = StreamDeckBridge.shared
@@ -107,6 +108,11 @@ struct ContentView: View {
             loadSettings()
             evaluateSetupCompletion()
             bridge.updateCachedStatusJSON()
+
+            if !checkedStreamDeckInstallPrompt {
+                checkedStreamDeckInstallPrompt = true
+                StreamDeckInstaller.shared.promptForInstallOrUpdateIfNeeded()
+            }
 
             if !settingsLoaded {
                 showingSetup = true

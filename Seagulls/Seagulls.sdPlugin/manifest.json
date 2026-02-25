@@ -1,0 +1,107 @@
+{
+	"Name": "Seagulls",
+	"Version": "1.0.0-rc2",
+	"Author": "Andy Bader",
+	"Actions": [
+		{
+			"Name": "Counter",
+			"UUID": "xyz.tailwindtech.dit.streamdeckpluginsandbox.increment",
+			"Icon": "imgs/actions/counter/icon",
+			"Tooltip": "Displays a count, which increments by one on press.",
+			"PropertyInspectorPath": "ui/increment-counter.html",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/counter/key",
+					"TitleAlignment": "middle"
+				}
+			]
+		},
+		{
+			"Name": "Seagulls Status",
+			"UUID": "xyz.tailwindtech.dit.streamdeckpluginsandbox.seagullsstatus",
+			"Icon": "imgs/actions/counter/icon",
+			"Tooltip": "Shows Seagulls localhost status (drive state + status message).",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/counter/key",
+					"TitleAlignment": "middle"
+				}
+			]
+		},
+		{
+			"Name": "Start Workflow",
+			"UUID": "xyz.tailwindtech.dit.streamdeckpluginsandbox.startworkflow",
+			"Icon": "imgs/actions/counter/icon",
+			"Tooltip": "POST /workflow/start",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/counter/key",
+					"TitleAlignment": "middle"
+				}
+			]
+		},
+		{
+			"Name": "Open Setup",
+			"UUID": "xyz.tailwindtech.dit.streamdeckpluginsandbox.opensettings",
+			"Icon": "imgs/actions/counter/icon",
+			"Tooltip": "Bring Seagulls forward + open Setup sheet",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/counter/key",
+					"TitleAlignment": "middle"
+				}
+			]
+		},
+		{
+			"Name": "Trust First Untrusted",
+			"UUID": "xyz.tailwindtech.dit.streamdeckpluginsandbox.trustfirst",
+			"Icon": "imgs/actions/counter/icon",
+			"Tooltip": "POST /drive/trust",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/counter/key",
+					"TitleAlignment": "middle"
+				}
+			]
+		}
+	],
+	"Category": "Seagulls",
+	"CategoryIcon": "imgs/plugin/category-icon",
+	"CodePath": "bin/plugin.js",
+	"Description": "Stream Deck controls for the Seagulls workflow.",
+	"Icon": "imgs/plugin/marketplace",
+	"SDKVersion": 3,
+	"Software": {
+		"MinimumVersion": "6.9"
+	},
+	"OS": [
+		{
+			"Platform": "mac",
+			"MinimumVersion": "12"
+		},
+		{
+			"Platform": "windows",
+			"MinimumVersion": "10"
+		}
+	],
+	"Nodejs": {
+		"Version": "20",
+		"Debug": "enabled"
+	},
+	"UUID": "xyz.tailwindtech.dit.streamdeckpluginsandbox"
+}

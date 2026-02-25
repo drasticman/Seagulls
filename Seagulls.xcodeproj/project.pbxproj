@@ -34,6 +34,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Seagulls.sdPlugin,
 			);
 			target = 408E57722F33E54D00E9259A /* Seagulls */;
 		};
@@ -115,6 +116,7 @@
 				408E576F2F33E54D00E9259A /* Sources */,
 				408E57702F33E54D00E9259A /* Frameworks */,
 				408E57712F33E54D00E9259A /* Resources */,
+				850A6D52D1404583AF7CBA20 /* Copy Stream Deck Plugin */,
 			);
 			buildRules = (
 			);
@@ -243,6 +245,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		850A6D52D1404583AF7CBA20 /* Copy Stream Deck Plugin */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Stream Deck Plugin";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nrm -rf \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Seagulls.sdPlugin\"\ncp -R \"${SRCROOT}/Seagulls/Seagulls.sdPlugin\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Seagulls.sdPlugin\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		408E576F2F33E54D00E9259A /* Sources */ = {
