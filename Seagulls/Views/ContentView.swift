@@ -22,7 +22,7 @@ struct ContentView: View {
     @State private var isRunning = false
     @State private var escapeMonitor: Any?
     @State private var untrustedDrives: [MountedDrive] = []
-    @State private var checkedStreamDeckInstallPrompt = false
+    @State private var attemptedStreamDeckInstallPrompt = false
 
     @StateObject private var driveRegistry = DriveRegistryModel.shared
     @StateObject private var bridge = StreamDeckBridge.shared
@@ -109,10 +109,7 @@ struct ContentView: View {
             evaluateSetupCompletion()
             bridge.updateCachedStatusJSON()
 
-            if !checkedStreamDeckInstallPrompt {
-                checkedStreamDeckInstallPrompt = true
-                StreamDeckInstaller.shared.promptForInstallOrUpdateIfNeeded()
-            }
+            triggerStreamDeckInstallPromptIfNeeded()
 
             if !settingsLoaded {
                 showingSetup = true
@@ -142,6 +139,7 @@ struct ContentView: View {
             if !isShowing {
                 loadSettings()
                 evaluateSetupCompletion()
+                triggerStreamDeckInstallPromptIfNeeded()
             }
         }
 
@@ -215,6 +213,16 @@ struct ContentView: View {
     }
 
     // MARK: - Settings
+
+    private func triggerStreamDeckInstallPromptIfNeeded() {
+        guard !attemptedStreamDeckInstallPrompt else { return }
+        guard !showingSetup else { return }
+
+        attemptedStreamDeckInstallPrompt = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            StreamDeckInstaller.shared.promptForInstallOrUpdateIfNeeded()
+        }
+    }
 
     func loadSettings() {
         guard let settings = CDLSettingsStore.load() else {
