@@ -23,6 +23,7 @@ final class StreamDeckBridge: ObservableObject {
         case noDrive
         case untrustedPresent
         case trustedPresent
+        case trustedMultiple
     }
 
     struct DriveInfo: Codable {
@@ -49,11 +50,56 @@ final class StreamDeckBridge: ObservableObject {
 
     /// Call this on MainActor whenever any of the fields that appear in /status change.
     func updateCachedStatusJSON() {
+
+        // ---- Derived fields for stable /status contract ----
+
+        // Workflow state
+        let workflowState: String
+        if pendingPromptID != nil {
+            workflowState = "awaitingInput"
+        } else if isRunning {
+            workflowState = "running"
+        } else {
+            workflowState = "idle"
+        }
+
+        // Drive count
+        let driveCount: Int
+        switch driveState {
+        case .noDrive:
+            driveCount = 0
+        case .trustedPresent:
+            driveCount = 1
+        case .untrustedPresent:
+            driveCount = untrustedDrives.count
+        case .trustedMultiple:
+            driveCount = 2
+        }
+
+        // ---- Minimal statusMessage tweak (untrusted drives) ----
+        var statusForAPI = statusMessage
+        if driveState == .untrustedPresent {
+            if driveCount == 1, let name = untrustedDrives.first?.name, !name.isEmpty {
+                statusForAPI = "Untrusted drive detected: \(name)"
+            } else if driveCount > 1 {
+                statusForAPI = "Multiple untrusted drives detected (\(driveCount))"
+            } else {
+                // Shouldn't happen, but keeps messaging sane if it does
+                statusForAPI = "Untrusted drive detected"
+            }
+        }
+
         let payload: [String: Any] = [
             "ok": true,
-            "statusMessage": statusMessage,
+            "apiVersion": 1,
+            "workflowState": workflowState,
+
+            // change only this line to use statusForAPI
+            "statusMessage": statusForAPI,
+
             "isRunning": isRunning,
             "driveState": driveState.rawValue,
+            "driveCount": driveCount,
             "trustedVolumeName": trustedVolumeName as Any,
             "pendingPrompt": (pendingPromptID == nil ? NSNull() : [
                 "kind": pendingPromptID as Any,

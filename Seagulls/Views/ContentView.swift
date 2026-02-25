@@ -132,9 +132,15 @@ struct ContentView: View {
             bridge.isRunning = newValue
             bridge.updateCachedStatusJSON()
         }
-
+        .onReceive(NotificationCenter.default.publisher(for: .sdOpenSettings)) { _ in
+            showingSetup = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .sdStartWorkflow)) { _ in
             startWorkflow()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sdShowMain)) { _ in
+            showingSetup = false
+            NSApp.activate(ignoringOtherApps: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: .sdTrustFirstUntrusted)) { _ in
             if let first = untrustedDrives.first {
@@ -228,23 +234,13 @@ struct ContentView: View {
         let mounted = mountedRemovableDrives()
         let candidates = candidateDrives(from: mounted).map { $0.mountedDrive }
 
-        if let trustedDrive = candidates.first(where: { driveRegistry.isTrusted($0) }) {
-            if volumeURL != trustedDrive.url {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    volumeURL = trustedDrive.url
-                }
-                statusMessage = "\(trustedDrive.volumeName ?? "Thumb drive") detected — ready to start"
-            }
+        // Partition once for clarity
+        let trustedCandidates = candidates.filter { driveRegistry.isTrusted($0) }
+        let untrustedCandidates = candidates.filter { !driveRegistry.isTrusted($0) }
 
-        } else if volumeURL != nil {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                volumeURL = nil
-            }
-            statusMessage = "Trusted thumb drive disconnected"
-        }
+        // Always keep untrustedDrives up to date for UI + /status
+        untrustedDrives = untrustedCandidates
 
-        untrustedDrives = candidates.filter { !driveRegistry.isTrusted($0) }
-        
         bridge.untrustedDrives = untrustedDrives.map { d in
             StreamDeckBridge.DriveInfo(
                 uuid: d.volumeUUID?.uuidString,
@@ -252,16 +248,55 @@ struct ContentView: View {
                 capacityBytes: d.capacityBytes
             )
         }
-        if volumeURL != nil {
+
+        // --- Trusted drive policy ---
+        if trustedCandidates.count > 1 {
+            // Multiple trusted drives: refuse to pick. Require user to eject/untrust one.
+            if volumeURL != nil {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    volumeURL = nil
+                }
+            }
+
+            statusMessage = "Multiple trusted drives detected — eject one"
+
+            bridge.driveState = .trustedMultiple
+            bridge.trustedVolumeName = nil
+            bridge.updateCachedStatusJSON()
+            return
+        }
+
+        if let trustedDrive = trustedCandidates.first {
+            // Exactly one trusted drive
+            if volumeURL != trustedDrive.url {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    volumeURL = trustedDrive.url
+                }
+                statusMessage = "\(trustedDrive.volumeName ?? "Thumb drive") detected — ready to start"
+            }
+
             bridge.driveState = .trustedPresent
-            bridge.trustedVolumeName = volumeURL?.lastPathComponent
-        } else if !untrustedDrives.isEmpty {
+            bridge.trustedVolumeName = trustedDrive.volumeName ?? trustedDrive.url.lastPathComponent
+            bridge.updateCachedStatusJSON()
+            return
+        }
+
+        // No trusted drive
+        if volumeURL != nil {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                volumeURL = nil
+            }
+            statusMessage = "Trusted thumb drive disconnected"
+        }
+
+        if !untrustedDrives.isEmpty {
             bridge.driveState = .untrustedPresent
             bridge.trustedVolumeName = nil
         } else {
             bridge.driveState = .noDrive
             bridge.trustedVolumeName = nil
         }
+
         bridge.updateCachedStatusJSON()
     }
 

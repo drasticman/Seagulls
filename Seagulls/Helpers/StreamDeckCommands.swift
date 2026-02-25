@@ -12,5 +12,7 @@ extension Notification.Name {
     static let sdTrustFirstUntrusted = Notification.Name("sdTrustFirstUntrusted")
     static let sdTrustByName = Notification.Name("sdTrustByName") // userInfo["name"] as String
     static let sdTrustByUUID = Notification.Name("sdTrustByUUID") // userInfo["uuid"]: String
+    static let sdOpenSettings = Notification.Name("sdOpenSettings")
+    static let sdShowMain = Notification.Name("sdShowMain")
 }
 

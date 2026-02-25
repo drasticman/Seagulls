@@ -219,6 +219,12 @@ final class LocalControlServer {
 
         case ("POST", "/prompt/cancel"):
             return handlePromptCancel(body: req.body)
+            
+        case ("POST", "/app/openSettings"):
+            return handlePost(name: .sdOpenSettings)
+            
+        case ("POST", "/app/showMain"):
+            return handlePost(name: .sdShowMain)
 
         default:
             return httpResponse(
