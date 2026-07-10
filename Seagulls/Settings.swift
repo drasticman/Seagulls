@@ -152,3 +152,53 @@ struct WorkflowSuggestions: Codable, Equatable {
         }
     }
 }
+
+// MARK: - Workflow suggestion persistence
+
+enum WorkflowSuggestionsStore {
+
+    static func suggestionsFileURL() -> URL {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(
+                "Seagulls/workflow-suggestions.json"
+            )
+    }
+
+    static func load(
+        from url: URL = suggestionsFileURL()
+    ) -> WorkflowSuggestions {
+        guard let data = try? Data(contentsOf: url) else {
+            return .initial
+        }
+
+        do {
+            return try JSONDecoder().decode(
+                WorkflowSuggestions.self,
+                from: data
+            )
+        } catch {
+            print("Failed to load workflow suggestions: \(error)")
+            return .initial
+        }
+    }
+
+    static func save(
+        _ suggestions: WorkflowSuggestions,
+        to url: URL = suggestionsFileURL()
+    ) throws {
+        let folder = url.deletingLastPathComponent()
+
+        try FileManager.default.createDirectory(
+            at: folder,
+            withIntermediateDirectories: true
+        )
+
+        let data = try JSONEncoder().encode(suggestions)
+
+        try data.write(
+            to: url,
+            options: [.atomic]
+        )
+    }
+}

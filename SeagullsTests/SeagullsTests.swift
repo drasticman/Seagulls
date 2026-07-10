@@ -5,9 +5,7 @@
 //  Created by Andy Bader on 2/4/26.
 //
 
-import Testing
-@testable import Seagulls
-
+import Foundation
 import Testing
 @testable import Seagulls
 
@@ -142,4 +140,76 @@ struct SeagullsTests {
 
         #expect(result == existingSuggestions)
     }
+    
+    @Test
+    func workflowSuggestionsCanBeSavedAndReloaded() throws {
+        let temporaryFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+
+        defer {
+            try? FileManager.default.removeItem(at: temporaryFolder)
+        }
+
+        let fileURL = temporaryFolder
+            .appendingPathComponent("workflow-suggestions.json")
+
+        let expected = WorkflowSuggestions(
+            shootingDay: "12",
+            breakName: "PM"
+        )
+
+        try WorkflowSuggestionsStore.save(
+            expected,
+            to: fileURL
+        )
+
+        let loaded = WorkflowSuggestionsStore.load(
+            from: fileURL
+        )
+
+        #expect(loaded == expected)
+    }
+
+    @Test
+    func missingSuggestionFileReturnsInitialSuggestions() {
+        let nonexistentFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("workflow-suggestions.json")
+
+        let loaded = WorkflowSuggestionsStore.load(
+            from: nonexistentFileURL
+        )
+
+        #expect(loaded == WorkflowSuggestions.initial)
+    }
+
+    @Test
+    func invalidSuggestionFileReturnsInitialSuggestions() throws {
+        let temporaryFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+
+        defer {
+            try? FileManager.default.removeItem(at: temporaryFolder)
+        }
+
+        try FileManager.default.createDirectory(
+            at: temporaryFolder,
+            withIntermediateDirectories: true
+        )
+
+        let fileURL = temporaryFolder
+            .appendingPathComponent("workflow-suggestions.json")
+
+        try Data("This is not valid JSON".utf8).write(
+            to: fileURL,
+            options: [.atomic]
+        )
+
+        let loaded = WorkflowSuggestionsStore.load(
+            from: fileURL
+        )
+
+        #expect(loaded == WorkflowSuggestions.initial)
+    }
 }
+
