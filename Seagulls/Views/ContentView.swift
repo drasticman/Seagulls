@@ -380,7 +380,12 @@ struct ContentView: View {
         do {
             try Task.checkCancellation()
 
-            let shootingDay = await PromptBroker.shared.requestShootingDay()
+            let suggestions = WorkflowSuggestionsStore.load()
+
+            let shootingDay = await PromptBroker.shared.requestShootingDay(
+                suggestedValue: suggestions.shootingDay
+            )
+
             guard !shootingDay.isEmpty else {
                 statusMessage = "Workflow cancelled"
                 return
@@ -388,7 +393,10 @@ struct ContentView: View {
 
             try Task.checkCancellation()
 
-            let breakName = await PromptBroker.shared.requestBreakName()
+            let breakName = await PromptBroker.shared.requestBreakName(
+                suggestedValue: suggestions.breakName
+            )
+
             guard !breakName.isEmpty else {
                 statusMessage = "Workflow cancelled"
                 return

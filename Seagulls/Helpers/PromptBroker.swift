@@ -53,19 +53,25 @@ final class PromptBroker: @unchecked Sendable {
 
     // MARK: - Public prompt entry points used by workflow
 
-    func requestShootingDay() async -> String {
+    func requestShootingDay(
+        suggestedValue: String
+    ) async -> String {
         await requestText(
             id: .shootingDay,
             title: "Shooting Day",
-            message: "Enter the shooting day (e.g. 6):"
+            message: "Enter the shooting day (e.g. 6):",
+            suggestedValue: suggestedValue
         )
     }
 
-    func requestBreakName() async -> String {
+    func requestBreakName(
+        suggestedValue: String
+    ) async -> String {
         await requestBreak(
             id: .breakName,
             title: "Break / AM-PM",
-            message: "Select or type a break designation:"
+            message: "Select or type a break designation:",
+            suggestedValue: suggestedValue
         )
     }
 
@@ -246,12 +252,12 @@ final class PromptBroker: @unchecked Sendable {
 
     // MARK: - Prompt entrypoints used internally
 
-    private func requestText(id: PromptID, title: String, message: String) async -> String {
+    private func requestText(id: PromptID, title: String, message: String, suggestedValue: String) async -> String {
         let handle = beginPrompt(id: id, title: title, message: message, options: ["OK", "Cancel"])
 
         let winner: Winner<String> = await withTaskCancellationHandler {
             await race(id: id) {
-                await askText(title: title, message: message)
+                await askText(title: title, message: message, suggestedValue: suggestedValue)
             }
         } onCancel: {
             Task { @MainActor in
@@ -276,12 +282,12 @@ final class PromptBroker: @unchecked Sendable {
         }
     }
 
-    private func requestBreak(id: PromptID, title: String, message: String) async -> String {
+    private func requestBreak(id: PromptID, title: String, message: String, suggestedValue: String) async -> String {
         let handle = beginPrompt(id: id, title: title, message: message, options: ["AM", "PM", "All Day", "Other", "Cancel"])
 
         let winner: Winner<String> = await withTaskCancellationHandler {
             await race(id: id) {
-                await askBreak()
+                await askBreak(suggestedValue: suggestedValue)
             }
         } onCancel: {
             Task { @MainActor in

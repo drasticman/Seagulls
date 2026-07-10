@@ -23,7 +23,11 @@ enum WipeChoice {
 
 /// Asks the user for free-text input (returns empty string if cancelled)
 @MainActor
-func askText(title: String, message: String) async -> String {
+func askText(
+    title: String,
+    message: String,
+    suggestedValue: String
+) async -> String {
     await withCheckedContinuation { continuation in
         let alert = NSAlert()
         alert.messageText = title
@@ -33,6 +37,7 @@ func askText(title: String, message: String) async -> String {
         alert.addButton(withTitle: "Cancel")
 
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        input.stringValue = suggestedValue
         alert.accessoryView = input
 
         if let window = NSApp.keyWindow ?? NSApp.windows.first {
@@ -58,7 +63,7 @@ func askText(title: String, message: String) async -> String {
 }
 /// Asks the user to enter a break name (AM/PM/All Day)
 @MainActor
-func askBreak() async -> String {
+func askBreak(suggestedValue: String) async -> String {
     await withCheckedContinuation { continuation in
         let alert = NSAlert()
         alert.messageText = "Break / AM-PM"
@@ -69,7 +74,7 @@ func askBreak() async -> String {
 
         let comboBox = NSComboBox(frame: NSRect(x: 0, y: 0, width: 150, height: 26))
         comboBox.addItems(withObjectValues: ["AM", "PM", "All Day"])
-        comboBox.selectItem(at: 0)
+        comboBox.stringValue = suggestedValue
         comboBox.isEditable = true
         alert.accessoryView = comboBox
 
