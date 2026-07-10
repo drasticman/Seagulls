@@ -96,3 +96,59 @@ enum CDLSettingsStore {
         }
     }
 }
+
+// MARK: - Workflow autofill suggestions
+
+struct WorkflowSuggestions: Codable, Equatable {
+    var shootingDay: String
+    var breakName: String
+
+    static let initial = WorkflowSuggestions(
+        shootingDay: "1",
+        breakName: "AM"
+    )
+
+    func suggestionsAfterSuccessfulArchive(
+        shootingDay completedShootingDay: String,
+        breakName completedBreakName: String
+    ) -> WorkflowSuggestions {
+        let normalizedBreakName = completedBreakName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard normalizedBreakName == "am" ||
+              normalizedBreakName == "pm" ||
+              normalizedBreakName == "all day" else {
+            return self
+        }
+
+        let normalizedShootingDay = completedShootingDay
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let shootingDayNumber = Int(normalizedShootingDay),
+              shootingDayNumber > 0 else {
+            return self
+        }
+
+        switch normalizedBreakName {
+        case "am":
+            return WorkflowSuggestions(
+                shootingDay: String(shootingDayNumber),
+                breakName: "PM"
+            )
+
+        case "pm", "all day":
+            guard shootingDayNumber < Int.max else {
+                return self
+            }
+
+            return WorkflowSuggestions(
+                shootingDay: String(shootingDayNumber + 1),
+                breakName: "AM"
+            )
+
+        default:
+            return self
+        }
+    }
+}
