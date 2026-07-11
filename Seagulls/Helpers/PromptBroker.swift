@@ -59,7 +59,7 @@ final class PromptBroker: @unchecked Sendable {
         await requestText(
             id: .shootingDay,
             title: "Shooting Day",
-            message: "Enter the shooting day (e.g. 6):",
+            message: "Enter the shooting day number:",
             suggestedValue: suggestedValue
         )
     }

@@ -213,12 +213,16 @@ func moveContents(from src: URL, to dst: URL) throws {
 }
 
 /// Deletes only CDL files from a folder
-func deleteCDLFiles(in folder: URL) {
+func deleteCDLFiles(in folder: URL) throws {
     let fm = FileManager.default
-    if let items = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) {
-        for item in items where item.pathExtension.lowercased() == "cdl" {
-            try? fm.removeItem(at: item)
-        }
+
+    let items = try fm.contentsOfDirectory(
+        at: folder,
+        includingPropertiesForKeys: nil
+    )
+
+    for item in items where item.pathExtension.lowercased() == "cdl" {
+        try fm.removeItem(at: item)
     }
 }
 
