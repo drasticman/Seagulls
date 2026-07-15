@@ -96,3 +96,109 @@ enum CDLSettingsStore {
         }
     }
 }
+
+// MARK: - Workflow autofill suggestions
+
+struct WorkflowSuggestions: Codable, Equatable {
+    var shootingDay: String
+    var breakName: String
+
+    static let initial = WorkflowSuggestions(
+        shootingDay: "1",
+        breakName: "AM"
+    )
+
+    func suggestionsAfterSuccessfulArchive(
+        shootingDay completedShootingDay: String,
+        breakName completedBreakName: String
+    ) -> WorkflowSuggestions {
+        let normalizedBreakName = completedBreakName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard normalizedBreakName == "am" ||
+              normalizedBreakName == "pm" ||
+              normalizedBreakName == "all day" else {
+            return self
+        }
+
+        let normalizedShootingDay = completedShootingDay
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let shootingDayNumber = Int(normalizedShootingDay),
+              shootingDayNumber > 0 else {
+            return self
+        }
+
+        switch normalizedBreakName {
+        case "am":
+            return WorkflowSuggestions(
+                shootingDay: String(shootingDayNumber),
+                breakName: "PM"
+            )
+
+        case "pm", "all day":
+            guard shootingDayNumber < Int.max else {
+                return self
+            }
+
+            return WorkflowSuggestions(
+                shootingDay: String(shootingDayNumber + 1),
+                breakName: "AM"
+            )
+
+        default:
+            return self
+        }
+    }
+}
+
+// MARK: - Workflow suggestion persistence
+
+enum WorkflowSuggestionsStore {
+
+    static func suggestionsFileURL() -> URL {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(
+                "Seagulls/workflow-suggestions.json"
+            )
+    }
+
+    static func load(
+        from url: URL = suggestionsFileURL()
+    ) -> WorkflowSuggestions {
+        guard let data = try? Data(contentsOf: url) else {
+            return .initial
+        }
+
+        do {
+            return try JSONDecoder().decode(
+                WorkflowSuggestions.self,
+                from: data
+            )
+        } catch {
+            print("Failed to load workflow suggestions: \(error)")
+            return .initial
+        }
+    }
+
+    static func save(
+        _ suggestions: WorkflowSuggestions,
+        to url: URL = suggestionsFileURL()
+    ) throws {
+        let folder = url.deletingLastPathComponent()
+
+        try FileManager.default.createDirectory(
+            at: folder,
+            withIntermediateDirectories: true
+        )
+
+        let data = try JSONEncoder().encode(suggestions)
+
+        try data.write(
+            to: url,
+            options: [.atomic]
+        )
+    }
+}

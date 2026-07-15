@@ -380,7 +380,12 @@ struct ContentView: View {
         do {
             try Task.checkCancellation()
 
-            let shootingDay = await PromptBroker.shared.requestShootingDay()
+            let suggestions = WorkflowSuggestionsStore.load()
+
+            let shootingDay = await PromptBroker.shared.requestShootingDay(
+                suggestedValue: suggestions.shootingDay
+            )
+
             guard !shootingDay.isEmpty else {
                 statusMessage = "Workflow cancelled"
                 return
@@ -388,7 +393,10 @@ struct ContentView: View {
 
             try Task.checkCancellation()
 
-            let breakName = await PromptBroker.shared.requestBreakName()
+            let breakName = await PromptBroker.shared.requestBreakName(
+                suggestedValue: suggestions.breakName
+            )
+
             guard !breakName.isEmpty else {
                 statusMessage = "Workflow cancelled"
                 return
@@ -418,7 +426,7 @@ struct ContentView: View {
                 switch choice {
                 case .wipe:
                     statusMessage = "Wiping thumb drive…"
-                    try? removeContents(of: volume)
+                    try removeContents(of: volume)
 
                 case .skip:
                     statusMessage = "Continuing without wipe…"
@@ -436,13 +444,45 @@ struct ContentView: View {
                 isDirectory: true
             )
 
-            try? FileManager.default.createDirectory(at: volumeTarget, withIntermediateDirectories: true)
-            try? copyContents(from: desktop, to: volumeTarget)
-            deleteCDLFiles(in: desktop)
+            try FileManager.default.createDirectory(
+                at: volumeTarget,
+                withIntermediateDirectories: true
+            )
 
-            let archiveDay = archiveRoot.appendingPathComponent("Day \(shootingDay)", isDirectory: true)
-            try? FileManager.default.createDirectory(at: archiveDay, withIntermediateDirectories: true)
-            try? moveContents(from: desktop, to: archiveDay)
+            try copyContents(
+                from: desktop,
+                to: volumeTarget
+            )
+
+            try deleteCDLFiles(
+                in: desktop
+            )
+
+            let archiveDay = archiveRoot.appendingPathComponent(
+                "Day \(shootingDay)",
+                isDirectory: true
+            )
+
+            try FileManager.default.createDirectory(
+                at: archiveDay,
+                withIntermediateDirectories: true
+            )
+
+            try moveContents(
+                from: desktop,
+                to: archiveDay
+            )
+            
+            let nextSuggestions = suggestions.suggestionsAfterSuccessfulArchive(
+                shootingDay: shootingDay,
+                breakName: breakName
+            )
+
+            do {
+                try WorkflowSuggestionsStore.save(nextSuggestions)
+            } catch {
+                print("Failed to save workflow suggestions: \(error)")
+            }
 
             NSWorkspace.shared.open(volumeTarget)
             if let firstJPG = firstFile(withExtensions: ["jpg", "jpeg"], in: volumeTarget) {
