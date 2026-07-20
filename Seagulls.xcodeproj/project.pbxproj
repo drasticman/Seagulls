@@ -34,7 +34,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				Seagulls.sdPlugin,
 			);
 			target = 408E57722F33E54D00E9259A /* Seagulls */;
 		};
@@ -434,13 +433,13 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-					CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 8VWBU5A8Z6;
-					ENABLE_APP_SANDBOX = NO;
-					ENABLE_HARDENED_RUNTIME = YES;
-					ENABLE_PREVIEWS = YES;
-					ENABLE_USER_SCRIPT_SANDBOXING = NO;
-					GENERATE_INFOPLIST_FILE = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Seagulls/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Seagulls;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -449,7 +448,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-					MARKETING_VERSION = "1.0.0-rc2";
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = AndyBader.Seagulls;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -470,13 +469,13 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-					CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 8VWBU5A8Z6;
-					ENABLE_APP_SANDBOX = NO;
-					ENABLE_HARDENED_RUNTIME = YES;
-					ENABLE_PREVIEWS = YES;
-					ENABLE_USER_SCRIPT_SANDBOXING = NO;
-					GENERATE_INFOPLIST_FILE = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Seagulls/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Seagulls;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -485,7 +484,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-					MARKETING_VERSION = "1.0.0-rc2";
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = AndyBader.Seagulls;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
