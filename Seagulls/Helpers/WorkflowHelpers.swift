@@ -195,7 +195,12 @@ func removeContents(of folder: URL) throws {
 /// Copies all contents from one folder to another
 func copyContents(from src: URL, to dst: URL) throws {
     let fm = FileManager.default
-    let items = try fm.contentsOfDirectory(at: src, includingPropertiesForKeys: nil)
+    let items = try fm.contentsOfDirectory(
+        at: src,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+    )
+
     for item in items {
         let destURL = dst.appendingPathComponent(item.lastPathComponent)
         try fm.copyItem(at: item, to: destURL)
@@ -205,7 +210,11 @@ func copyContents(from src: URL, to dst: URL) throws {
 /// Moves all contents from one folder to another
 func moveContents(from src: URL, to dst: URL) throws {
     let fm = FileManager.default
-    let items = try fm.contentsOfDirectory(at: src, includingPropertiesForKeys: nil)
+    let items = try fm.contentsOfDirectory(
+        at: src,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+    )
     for item in items {
         let destURL = dst.appendingPathComponent(item.lastPathComponent)
         try fm.moveItem(at: item, to: destURL)
