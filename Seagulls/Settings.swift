@@ -11,12 +11,65 @@ import Foundation
 struct CDLSettings: Codable {
     var desktopCDLPath: String
     var archiveRootPath: String
+    var useThumbDriveDestination: Bool = true
+    var useLocalDestination: Bool = false
+    var localDestinationPath: String?
     var volumePath: String
-
     var desktopCDLURL: URL { URL(fileURLWithPath: desktopCDLPath) }
     var archiveRootURL: URL { URL(fileURLWithPath: archiveRootPath) }
     var volumeURL: URL { URL(fileURLWithPath: volumePath) }
+    var localDestinationURL: URL? {
+        guard let localDestinationPath,
+              !localDestinationPath.isEmpty else {
+            return nil
+        }
 
+        return URL(fileURLWithPath: localDestinationPath)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case desktopCDLPath
+        case archiveRootPath
+        case useThumbDriveDestination
+        case useLocalDestination
+        case localDestinationPath
+        case volumePath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        desktopCDLPath = try container.decode(
+            String.self,
+            forKey: .desktopCDLPath
+        )
+
+        archiveRootPath = try container.decode(
+            String.self,
+            forKey: .archiveRootPath
+        )
+
+        volumePath = try container.decode(
+            String.self,
+            forKey: .volumePath
+        )
+
+        useThumbDriveDestination = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .useThumbDriveDestination
+        ) ?? true
+
+        useLocalDestination = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .useLocalDestination
+        ) ?? false
+
+        localDestinationPath = try container.decodeIfPresent(
+            String.self,
+            forKey: .localDestinationPath
+        )
+    }
+    
     init(desktopURL: URL, archiveURL: URL, volumeURL: URL) {
         self.desktopCDLPath = desktopURL.path
         self.archiveRootPath = archiveURL.path
