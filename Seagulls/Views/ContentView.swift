@@ -8,6 +8,19 @@
 import SwiftUI
 import AppKit
 
+private struct WorkflowDestination {
+    let name: String
+    let rootURL: URL
+    let isThumbDrive: Bool
+
+    func targetURL(shootingDay: String, breakName: String) -> URL {
+        rootURL.appendingPathComponent(
+            "Day \(shootingDay) \(breakName) CDLs and Framegrabs",
+            isDirectory: true
+        )
+    }
+}
+
 struct ContentView: View {
 
     @State private var desktopCDLURL: URL?
@@ -27,6 +40,26 @@ struct ContentView: View {
     @StateObject private var driveRegistry = DriveRegistryModel.shared
     @StateObject private var bridge = StreamDeckBridge.shared
 
+    private var canStartWorkflow: Bool {
+        guard let settings = loadedSettings else {
+            return false
+        }
+
+        if settings.useThumbDriveDestination {
+            guard volumeURL != nil else {
+                return false
+            }
+        }
+
+        if settings.useLocalDestination {
+            guard settings.localDestinationURL != nil else {
+                return false
+            }
+        }
+
+        return settings.useThumbDriveDestination || settings.useLocalDestination
+    }
+    
     var body: some View {
         VStack(spacing: 20) {
 
@@ -70,7 +103,7 @@ struct ContentView: View {
                     Button("Start Workflow") {
                         startWorkflow()
                     }
-                    .disabled(volumeURL == nil || isRunning)
+                    .disabled(!canStartWorkflow || isRunning)
                     .keyboardShortcut(.defaultAction)
                 }
 
@@ -351,27 +384,74 @@ struct ContentView: View {
         statusMessage = "\(drive.volumeName ?? "Thumb drive") trusted — ready to start"
     }
 
+    private func resolvedWorkflowDestinations() -> [WorkflowDestination] {
+        guard let settings = loadedSettings else {
+            return []
+        }
+
+        var destinations: [WorkflowDestination] = []
+
+        if settings.useThumbDriveDestination,
+           let volumeURL {
+            destinations.append(
+                WorkflowDestination(
+                    name: volumeURL.lastPathComponent,
+                    rootURL: volumeURL,
+                    isThumbDrive: true
+                )
+            )
+        }
+
+        if settings.useLocalDestination,
+           let localURL = settings.localDestinationURL {
+            destinations.append(
+                WorkflowDestination(
+                    name: "Local Destination",
+                    rootURL: localURL,
+                    isThumbDrive: false
+                )
+            )
+        }
+
+        return destinations
+    }
+    
     // MARK: - Main Workflow
 
     func startWorkflow() {
         guard !isRunning else { return }
-        isRunning = true
 
         guard let desktop = desktopCDLURL,
-              let archiveRoot = archiveRootURL,
-              let volume = volumeURL else {
-            isRunning = false
+              let archiveRoot = archiveRootURL else {
+            statusMessage = "Workflow cannot start — source folders are not configured"
             return
         }
 
+        guard canStartWorkflow else {
+            statusMessage = "Workflow cannot start — no valid destination is available"
+            return
+        }
+
+        let destinations = resolvedWorkflowDestinations()
+
+        isRunning = true
+
         workflowTask?.cancel()
         workflowTask = Task {
-            await runWorkflow(desktop: desktop, archiveRoot: archiveRoot, volume: volume)
+            await runWorkflow(
+                desktop: desktop,
+                archiveRoot: archiveRoot,
+                destinations: destinations
+            )
         }
     }
 
     @MainActor
-    private func runWorkflow(desktop: URL, archiveRoot: URL, volume: URL) async {
+    private func runWorkflow(
+        desktop: URL,
+        archiveRoot: URL,
+        destinations: [WorkflowDestination]
+    ) async {
         defer {
             isRunning = false
             workflowTask = nil
@@ -409,50 +489,76 @@ struct ContentView: View {
 
             try Task.checkCancellation()
 
-            statusMessage = "Waiting for thumb drive…"
-            try await waitForDrive(at: volume)
+            var completedTargets: [URL] = []
 
-            try Task.checkCancellation()
+            for destination in destinations {
+                try Task.checkCancellation()
 
-            let visible = meaningfulContents(of: volume)
-            if !visible.isEmpty {
-                statusMessage = "Thumb drive not empty — awaiting wipe / skip / cancel"
+                if destination.isThumbDrive {
+                    statusMessage = "Waiting for thumb drive…"
+                    try await waitForDrive(at: destination.rootURL)
 
-                let choice = await PromptBroker.shared.requestWipeChoice(
-                    volumeURL: volume,
-                    volumeName: volume.lastPathComponent
+                    try Task.checkCancellation()
+
+                    let visible = meaningfulContents(of: destination.rootURL)
+
+                    if !visible.isEmpty {
+                        statusMessage = "Thumb drive not empty — awaiting wipe / skip / cancel"
+
+                        let choice = await PromptBroker.shared.requestWipeChoice(
+                            volumeURL: destination.rootURL,
+                            volumeName: destination.name
+                        )
+
+                        switch choice {
+                        case .wipe:
+                            statusMessage = "Wiping thumb drive…"
+                            try removeContents(of: destination.rootURL)
+
+                        case .skip:
+                            statusMessage = "Continuing without wipe…"
+
+                        case .cancel:
+                            statusMessage = "Workflow cancelled"
+                            return
+                        }
+                    }
+                } else {
+                    guard FileManager.default.fileExists(
+                        atPath: destination.rootURL.path
+                    ) else {
+                        throw NSError(
+                            domain: "Seagulls",
+                            code: 1,
+                            userInfo: [
+                                NSLocalizedDescriptionKey:
+                                    "Local destination is unavailable: \(destination.rootURL.path)"
+                            ]
+                        )
+                    }
+                }
+
+                try Task.checkCancellation()
+
+                let target = destination.targetURL(
+                    shootingDay: shootingDay,
+                    breakName: breakName
                 )
 
-                switch choice {
-                case .wipe:
-                    statusMessage = "Wiping thumb drive…"
-                    try removeContents(of: volume)
+                statusMessage = "Copying to \(destination.name)…"
 
-                case .skip:
-                    statusMessage = "Continuing without wipe…"
+                try FileManager.default.createDirectory(
+                    at: target,
+                    withIntermediateDirectories: true
+                )
 
-                case .cancel:
-                    statusMessage = "Workflow cancelled"
-                    return
-                }
+                try copyContents(
+                    from: desktop,
+                    to: target
+                )
+
+                completedTargets.append(target)
             }
-
-            try Task.checkCancellation()
-
-            let volumeTarget = volume.appendingPathComponent(
-                "Day \(shootingDay) \(breakName) CDLs and Framegrabs",
-                isDirectory: true
-            )
-
-            try FileManager.default.createDirectory(
-                at: volumeTarget,
-                withIntermediateDirectories: true
-            )
-
-            try copyContents(
-                from: desktop,
-                to: volumeTarget
-            )
 
             try deleteCDLFiles(
                 in: desktop
@@ -484,9 +590,22 @@ struct ContentView: View {
                 print("Failed to save workflow suggestions: \(error)")
             }
 
-            NSWorkspace.shared.open(volumeTarget)
-            if let firstJPG = firstFile(withExtensions: ["jpg", "jpeg"], in: volumeTarget) {
-                NSWorkspace.shared.open(firstJPG)
+            if let preferredTarget =
+                completedTargets.first(where: { target in
+                    destinations.contains {
+                        $0.isThumbDrive &&
+                        target.deletingLastPathComponent() == $0.rootURL
+                    }
+                }) ?? completedTargets.first {
+
+                NSWorkspace.shared.open(preferredTarget)
+
+                if let firstJPG = firstFile(
+                    withExtensions: ["jpg", "jpeg"],
+                    in: preferredTarget
+                ) {
+                    NSWorkspace.shared.open(firstJPG)
+                }
             }
 
             statusMessage = "Workflow complete!"
