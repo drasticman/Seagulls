@@ -40,6 +40,7 @@ struct ContentView: View {
     @StateObject private var driveRegistry = DriveRegistryModel.shared
     @StateObject private var bridge = StreamDeckBridge.shared
 
+    
     private var canStartWorkflow: Bool {
         guard let settings = loadedSettings else {
             return false
@@ -52,12 +53,26 @@ struct ContentView: View {
         }
 
         if settings.useLocalDestination {
-            guard settings.localDestinationURL != nil else {
+            guard existingDirectory(at: settings.localDestinationURL) else {
                 return false
             }
         }
 
-        return settings.useThumbDriveDestination || settings.useLocalDestination
+        return settings.useThumbDriveDestination
+            || settings.useLocalDestination
+    }
+    
+    private func existingDirectory(at url: URL?) -> Bool {
+        guard let url else {
+            return false
+        }
+
+        var isDirectory: ObjCBool = false
+
+        return FileManager.default.fileExists(
+            atPath: url.path,
+            isDirectory: &isDirectory
+        ) && isDirectory.boolValue
     }
     
     var body: some View {
@@ -74,22 +89,43 @@ struct ContentView: View {
                         Text("Framegrab Archive Folder: \(archive.path)")
                     }
 
-                    if let volume = volumeURL {
-                        Text("Thumb Drive Volume: \(volume.path)")
-                            .transition(.opacity)
-                    } else {
-                        VStack {
-                            Text("Thumb Drive Volume: Not mounted")
-                                .foregroundColor(.secondary)
+                    if let settings = loadedSettings {
 
-                            ForEach(untrustedDrives, id: \.url) { drive in
-                                HStack {
-                                    Text("Untrusted: \(drive.volumeName ?? "Unknown")")
-                                        .foregroundColor(.orange)
-                                    Button("Trust") {
-                                        trustDrive(drive)
+                        if settings.useThumbDriveDestination {
+                            if let volume = volumeURL {
+                                Text("Thumb Drive Destination: \(volume.path)")
+                                    .transition(.opacity)
+                            } else {
+                                VStack {
+                                    Text("Thumb Drive Destination: Not mounted")
+                                        .foregroundColor(.secondary)
+
+                                    ForEach(untrustedDrives, id: \.url) { drive in
+                                        HStack {
+                                            Text("Untrusted: \(drive.volumeName ?? "Unknown")")
+                                                .foregroundColor(.orange)
+
+                                            Button("Trust") {
+                                                trustDrive(drive)
+                                            }
+                                        }
                                     }
                                 }
+                            }
+                        }
+
+                        if settings.useLocalDestination {
+                            if let localURL = settings.localDestinationURL {
+                                Text("Local Destination: \(localURL.path)")
+
+                                if !existingDirectory(at: localURL) {
+                                    Text("Local destination folder is unavailable.")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                }
+                            } else {
+                                Text("Local Destination: Not set")
+                                    .foregroundColor(.secondary)
                             }
                         }
                     }
@@ -419,11 +455,30 @@ struct ContentView: View {
     // MARK: - Main Workflow
 
     func startWorkflow() {
-        guard !isRunning else { return }
+        guard !isRunning else {
+            return
+        }
 
         guard let desktop = desktopCDLURL,
               let archiveRoot = archiveRootURL else {
             statusMessage = "Workflow cannot start — source folders are not configured"
+            return
+        }
+
+        guard let settings = loadedSettings else {
+            statusMessage = "Workflow cannot start — settings are unavailable"
+            return
+        }
+
+        if settings.useLocalDestination,
+           !existingDirectory(at: settings.localDestinationURL) {
+            statusMessage = "Workflow cannot start — local destination folder is unavailable"
+            return
+        }
+
+        if settings.useThumbDriveDestination,
+           volumeURL == nil {
+            statusMessage = "Workflow cannot start — trusted thumb drive is not connected"
             return
         }
 
@@ -433,6 +488,11 @@ struct ContentView: View {
         }
 
         let destinations = resolvedWorkflowDestinations()
+
+        guard !destinations.isEmpty else {
+            statusMessage = "Workflow cannot start — no destination is available"
+            return
+        }
 
         isRunning = true
 

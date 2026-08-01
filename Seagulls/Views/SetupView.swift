@@ -16,10 +16,27 @@ struct SetupView: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var driveRegistry = DriveRegistryModel.shared
+    @State private var useThumbDriveDestination = true
+    @State private var useLocalDestination = false
+    @State private var localDestinationURL: URL?
+    @State private var destinationSettingsLoaded = false
 
     // ✅ Derived setup completion
     private var isSetupValid: Bool {
-        desktopCDLURL != nil && archiveRootURL != nil
+        guard desktopCDLURL != nil,
+              archiveRootURL != nil else {
+            return false
+        }
+
+        guard useThumbDriveDestination || useLocalDestination else {
+            return false
+        }
+
+        if useLocalDestination && localDestinationURL == nil {
+            return false
+        }
+
+        return true
     }
 
     var body: some View {
@@ -33,6 +50,41 @@ struct SetupView: View {
 
             Divider()
 
+            // MARK: - Offload Destinations
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Offload Destinations")
+                    .font(.headline)
+
+                Toggle(
+                    "Copy to trusted thumb drive",
+                    isOn: $useThumbDriveDestination
+                )
+
+                Toggle(
+                    "Copy to local folder",
+                    isOn: $useLocalDestination
+                )
+
+                folderPicker(
+                    label: "Local Destination",
+                    url: $localDestinationURL
+                )
+                .disabled(!useLocalDestination)
+                .opacity(useLocalDestination ? 1.0 : 0.5)
+
+                if !useThumbDriveDestination && !useLocalDestination {
+                    Text("Select at least one destination.")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                } else if useLocalDestination && localDestinationURL == nil {
+                    Text("Choose a local destination folder.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+            }
+
+            Divider()
+            
             // MARK: - Trusted Drives List
             VStack(alignment: .leading, spacing: 10) {
                 Text("Trusted Drives")
@@ -71,7 +123,7 @@ struct SetupView: View {
                         .padding(.top, 6)
                     }
                 }
-                .frame(maxHeight: 200)
+                .frame(minHeight: 140, maxHeight: 200)
 
                 Button("Forget All Trusted Drives") {
                     Task { @MainActor in
@@ -96,7 +148,10 @@ struct SetupView: View {
             Spacer()
         }
         .padding()
-        .frame(minWidth: 520, minHeight: 500)
+        .frame(minWidth: 520, minHeight: 600)
+        .onAppear {
+            loadDestinationSettings()
+        }
     }
 
     // MARK: - Folder Picker
@@ -125,6 +180,24 @@ struct SetupView: View {
         }
     }
 
+    // MARK: - Destination Settings
+
+    private func loadDestinationSettings() {
+        guard !destinationSettingsLoaded else {
+            return
+        }
+
+        destinationSettingsLoaded = true
+
+        guard let settings = CDLSettingsStore.load() else {
+            return
+        }
+
+        useThumbDriveDestination = settings.useThumbDriveDestination
+        useLocalDestination = settings.useLocalDestination
+        localDestinationURL = settings.localDestinationURL
+    }
+    
     // MARK: - Save Settings
     func saveSettings() {
         guard let desktop = desktopCDLURL,
@@ -133,12 +206,33 @@ struct SetupView: View {
             return
         }
 
-        // volumeURL is optional and flexible; keep your fallback
-        let vol = volumeURL ?? desktop
+        guard useThumbDriveDestination || useLocalDestination else {
+            statusMessage = "Please select at least one destination."
+            return
+        }
 
-        let settings = CDLSettings(desktopURL: desktop, archiveURL: archive, volumeURL: vol)
+        if useLocalDestination && localDestinationURL == nil {
+            statusMessage = "Please choose a local destination folder."
+            return
+        }
+
+        // volumePath remains in the settings format for trusted-drive
+        // compatibility. The mounted drive watcher supplies the live URL.
+        let savedVolumeURL =
+            volumeURL
+            ?? CDLSettingsStore.load()?.volumeURL
+            ?? desktop
+
+        let settings = CDLSettings(
+            desktopURL: desktop,
+            archiveURL: archive,
+            volumeURL: savedVolumeURL,
+            useThumbDriveDestination: useThumbDriveDestination,
+            useLocalDestination: useLocalDestination,
+            localDestinationURL: localDestinationURL
+        )
+
         CDLSettingsStore.save(settings)
-
         statusMessage = "Settings saved"
         dismiss()
     }

@@ -70,10 +70,20 @@ struct CDLSettings: Codable {
         )
     }
     
-    init(desktopURL: URL, archiveURL: URL, volumeURL: URL) {
+    init(
+        desktopURL: URL,
+        archiveURL: URL,
+        volumeURL: URL,
+        useThumbDriveDestination: Bool = true,
+        useLocalDestination: Bool = false,
+        localDestinationURL: URL? = nil
+    ) {
         self.desktopCDLPath = desktopURL.path
         self.archiveRootPath = archiveURL.path
         self.volumePath = volumeURL.path
+        self.useThumbDriveDestination = useThumbDriveDestination
+        self.useLocalDestination = useLocalDestination
+        self.localDestinationPath = localDestinationURL?.path
     }
 }
 
